@@ -8,10 +8,6 @@ This is an ICRC-7 standard implementation in Motoko. Although the ICRC-7 standar
 
 To support the implementation's readiness, we've introduced some non-standard methods that enhance canister management and streamline the integration process. The "mint" method is one such addition, facilitating the creation of new NFTs with metadata, attributes, and ownership credentials. This allows for greater customization while adhering to the core principles of the ICRC-7 standard. Another non-standard method we've included is "get_transactions", which empowers developers to efficiently retrieve transaction data for NFTs. This functionality promotes seamless integration with existing applications and paves the way for building innovative NFT marketplaces, provenance trackers, and other services that rely on transaction history.
 
-### Contributions
-
-To support the implementation's readiness, we've introduced some non-standard methods that enhance canister management and streamline the integration process. The "mint" method is one such addition, facilitating the creation of new NFTs with metadata, attributes, and ownership credentials. This allows for greater customization while adhering to the core principles of the ICRC-7 standard. Another non-standard method we've included is "get_transactions," which empowers developers to efficiently retrieve transaction data for NFTs. This functionality promotes seamless integration with existing applications and paves the way for building innovative NFT marketplaces, provenance trackers, and other services that rely on transaction history.
-
 ## Specification
 
 For standard methods and structures documentation, read the [specifications](https://github.com/dfinity/ICRC/blob/main/ICRCs/ICRC-7/ICRC-7.md).

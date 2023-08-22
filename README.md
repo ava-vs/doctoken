@@ -1,4 +1,4 @@
-# ICRC7
+# ICRC-7
 
 ## Abstract
 

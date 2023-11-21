@@ -23,7 +23,7 @@ module {
     royalties: ?Nat16;
     royaltyRecipient: ?Account;
     description: ?Text;
-    image: ?Blob; //todo https://github.com/dfinity/ICRC/commit/ce839e586a993c051a595bfd8386f5c041d7bf18
+    image: ?Text; //todo https://github.com/dfinity/ICRC/commit/ce839e586a993c051a595bfd8386f5c041d7bf18
     supplyCap: ?Nat;
   };
 
@@ -33,7 +33,7 @@ module {
     royalties: ?Nat16;
     royaltyRecipient: ?Account;
     description: ?Text;
-    image: ?Blob;
+    image: ?Text;
     totalSupply: Nat;
     supplyCap: ?Nat;
   };

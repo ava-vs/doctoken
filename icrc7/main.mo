@@ -23,7 +23,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
   private stable var royalties : ?Nat16 = init.royalties;
   private stable var royaltyRecipient : ?Types.Account = init.royaltyRecipient;
   private stable var description : ?Text = init.description;
-  private stable var image : ?Blob = init.image;
+  private stable var image : ?Text = init.image;
   private stable var supplyCap : ?Nat = init.supplyCap;
   private stable var totalSupply : Nat = 0;
   private stable var transferSequentialIndex : Nat = 0;
@@ -104,7 +104,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     return description;
   };
 
-  public shared query func icrc7_image() : async ?Blob {
+  public shared query func icrc7_image() : async ?Text {
     return image;
   };
 
@@ -169,6 +169,9 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
   };
 
   public shared ({ caller }) func icrc7_transfer(transferArgs : Types.TransferArgs) : async Types.TransferReceipt {
+    // Soulbound check
+    if (transferArgs.to.owner != caller) return #Err(#Unauthorized({ token_ids = transferArgs.token_ids }));
+
     let now = Nat64.fromIntWrap(Time.now());
 
     let callerSubaccount : Types.Subaccount = switch (transferArgs.spender_subaccount) {

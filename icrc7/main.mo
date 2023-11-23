@@ -7,6 +7,7 @@ import HashMap "mo:base/HashMap";
 import Nat "mo:base/Nat";
 import Nat16 "mo:base/Nat16";
 import Nat64 "mo:base/Nat64";
+import Option "mo:base/Option";
 import Principal "mo:base/Principal";
 import Text "mo:base/Text";
 import Time "mo:base/Time";
@@ -16,6 +17,8 @@ import Types "./types";
 import Utils "./utils";
 
 shared actor class Collection(collectionOwner : Types.Account, init : Types.CollectionInitArgs) = Self {
+
+  private stable let hub_canister_id = "lyp2p-oiaaa-aaaan-qedqq-cai";
   private stable var owner : Types.Account = collectionOwner;
 
   private stable var name : Text = init.name;
@@ -69,6 +72,38 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
   };
   private func _keyFromTransactionId(t : Types.TransactionId) : Key<Types.TransactionId> {
     { hash = Hash.hash t; key = t };
+  };
+
+  public shared ({ caller }) func issue(issueArgs : Types.IssueArgs) : async Types.MintReceipt {
+    let result = await mint(issueArgs.mint_args);
+    var token_id = 0;
+    switch (result) {
+      case (#Ok(reciept)) {};
+      case (#Err(err)) { return #Err(#Unauthorized) };
+    };
+    //TODO emit event #CreateEvent and make reputation call
+    /*
+     public type CreateEvent = actor {
+        emit : Event -> async Result.Result<[(Text, Text)], Text>;
+     };
+     //hub
+     emitEvent(event : E.Event) : async [Subscriber]
+    */
+    let event : Types.Event = {
+      eventType = #CreateEvent;
+      topics = Utils.convertMetadataToEventField(issueArgs.mint_args.metadata);
+      tokenId = Option.make(token_id);
+      owner = Option.make(caller);
+      metadata = Option.make(Utils.convertMetadataToTextPairs(issueArgs.mint_args.metadata));
+      creationDate = Option.make(Time.now());
+    };
+    let canister : Types.CreateEvent = actor (hub_canister_id);
+    let emitResult = await canister.emitEvent(event);
+
+    let repArgs = Utils.issueArgsToRepArgs(issueArgs);
+    // let reputation = await rep.addReputation(caller, repArgs);
+    //TODO convert reputation response to Result
+    return result;
   };
 
   public shared query func icrc7_collection_metadata() : async Types.CollectionMetadata {

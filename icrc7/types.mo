@@ -70,7 +70,7 @@ module {
 
   public type MintArgs = {
     to : Account;
-    token_id : TokenId;
+    // token_id : TokenId;
     metadata : [(Text, Metadata)];
   };
 

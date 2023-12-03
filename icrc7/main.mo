@@ -78,6 +78,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     { hash = Hash.hash t; key = t };
   };
 
+  // Form event arguments (metadata, reputation, etc.) from document's fields and issue Event
   public shared ({ caller }) func createEvent(
     rep_value : Nat8,
     comment : Text,
@@ -111,6 +112,8 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
         };
       };
     };
+
+    // Call issue function
     let issueResult = await issue(issueArgs);
     let tokenId = switch (issueResult) {
       case (#Err(err)) {
@@ -149,12 +152,14 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
   };
 
   public shared ({ caller }) func issue(issueArgs : Types.IssueArgs) : async Types.MintReceipt {
+    // Mint a new doctoken from document
     let result = await mint(issueArgs.mint_args);
     let tokenId = switch (result) {
       case (#Ok(reciept)) { reciept };
       case (#Err(err)) { return #Err(#Unauthorized) };
     };
 
+    // create #InstantReputationUpdateEvent event
     let event : Types.Event = {
       eventType = #InstantReputationUpdateEvent;
       topics = Utils.convertMetadataToEventField(issueArgs.mint_args.metadata);
@@ -175,7 +180,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
       value = 10;
       comment = comment;
     };
-    // let emitResult = await hub_canister.emitEvent(event);
+    // call aVa Event Hub with the event
     let emitInstantResult = await hub_instant_canister.eventHandler(args);
     if (emitInstantResult == "Event InstantReputationUpdateEvent was handled") {
       return result;
@@ -472,34 +477,34 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     };
 
     //cannot mint an existing token id
-    let alreadyExists = _exists(mintArgs.token_id);
-    if (alreadyExists) {
-      return #Err(#AlreadyExistTokenId);
-    };
+    // let alreadyExists = _exists();
+    // if (alreadyExists) {
+    //   return #Err(#AlreadyExistTokenId);
+    // };
 
     //create the new token
     let newToken : Types.TokenMetadata = {
-      tokenId = mintArgs.token_id;
+      tokenId = next_token_id;
       owner = acceptedTo;
       metadata = mintArgs.metadata;
     };
 
     //update the token metadata
-    let tokenId : Types.TokenId = mintArgs.token_id;
+    let tokenId : Types.TokenId = newToken.tokenId;
     tokens := Trie.put(tokens, _keyFromTokenId tokenId, Nat.equal, newToken).0;
 
-    _addTokenToOwners(acceptedTo, mintArgs.token_id);
+    _addTokenToOwners(acceptedTo, tokenId);
 
     _incrementBalance(acceptedTo);
 
     _incrementTotalSupply(1);
 
-    let transaction : Types.Transaction = _addTransaction(#mint, now, ?[mintArgs.token_id], ?acceptedTo, null, null, null, null, null);
+    let transaction : Types.Transaction = _addTransaction(#mint, now, ?[tokenId], ?acceptedTo, null, null, null, null, null);
 
     // update token counter
     next_token_id := next_token_id + 1;
 
-    return #Ok(mintArgs.token_id);
+    return #Ok(tokenId);
   };
 
   public func get_transactions(getTransactionsArgs : Types.GetTransactionsArgs) : async Types.GetTransactionsResult {

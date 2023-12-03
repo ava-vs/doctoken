@@ -1,9 +1,6 @@
 {
     "canisters": {
-      "icrc7": {
-        "dependencies": [          
-          "rep"
-        ],
+      "doctoken": {     
         "main": "icrc7/main.mo",
         "type": "motoko"
       }

@@ -7,18 +7,20 @@ import HashMap "mo:base/HashMap";
 import Nat "mo:base/Nat";
 import Nat16 "mo:base/Nat16";
 import Nat64 "mo:base/Nat64";
+import Nat8 "mo:base/Nat8";
 import Option "mo:base/Option";
 import Principal "mo:base/Principal";
 import Text "mo:base/Text";
 import Time "mo:base/Time";
 import Trie "mo:base/Trie";
+import Result "mo:base/Result";
 
 import Types "./types";
 import Utils "./utils";
 
 shared actor class Collection(collectionOwner : Types.Account, init : Types.CollectionInitArgs) = Self {
 
-  private stable let hub_canister_id = "lyp2p-oiaaa-aaaan-qedqq-cai";
+  private stable let hub_canister_id = "a3qjj-saaaa-aaaal-adgoa-cai";
   private stable var owner : Types.Account = collectionOwner;
 
   private stable var name : Text = init.name;
@@ -39,6 +41,8 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
   private var TX_WINDOW : Nat64 = 24 * 60 * 60 * 1_000_000_000; // 24 hours in nanoseconds
 
   private stable var tokens : Trie<Types.TokenId, Types.TokenMetadata> = Trie.empty();
+  private stable var next_token_id : Types.TokenId = 0;
+
   //owner Trie: use of Text insted of Account to improve performanances in lookup
   private stable var owners : Trie<Text, [Types.TokenId]> = Trie.empty(); //fast lookup
   //balances Trie: use of Text insted of Account to improve performanances in lookup (could also retrieve this from owners[account].size())
@@ -74,36 +78,109 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     { hash = Hash.hash t; key = t };
   };
 
+  public shared ({ caller }) func createEvent(
+    rep_value : Nat8,
+    comment : Text,
+    tag : Text,
+    topic : Types.Topic,
+    user : Principal,
+  ) : async Result.Result<Types.Event, Types.EventError> {
+    if ((await checkTag(tag)) == false) {
+      return #err(#TagNotFound { tag = "Tag " # tag # " Not Found" });
+    };
+    let eventType = Option.get<Types.EventName>(topic.eventType, #InstantReputationUpdateEvent);
+    let metadata : [(Text, Types.Metadata)] = [
+      ("comment", #Text(comment)),
+      ("tag", #Text(tag)),
+      ("topic_field", #Blob(Blob.fromArray([68]))),
+    ];
+
+    let issueArgs : Types.IssueArgs = {
+      mint_args = {
+        to = { owner = caller; subaccount = null };
+        token_id = next_token_id;
+        metadata = metadata;
+      };
+      reputation = {
+        user = user;
+        value = rep_value;
+        comment = comment;
+        tag = {
+          cipher = null;
+          name = tag;
+        };
+      };
+    };
+    let issueResult = await issue(issueArgs);
+    let tokenId = switch (issueResult) {
+      case (#Err(err)) {
+        switch (err) {
+          case (#Unauthorized) return #err(#Unauthorized);
+          case (#SupplyCapOverflow) return #err(#SupplyCapOverflow);
+          case (#AlreadyExistTokenId) return #err(#AlreadyExistTokenId);
+          case (#GenericError { error_code; message }) {
+            return #err(#GenericError { error_code = error_code; message = message });
+          };
+          case (#InvalidRecipient) return #err(#InvalidRecipient);
+        };
+      };
+      case (#Ok(id)) { id };
+    };
+    return #ok({
+      eventType = eventType;
+      topics = Utils.convertMetadataToEventField(metadata);
+      tokenId = ?tokenId;
+      owner = Option.make(caller);
+      metadata = Option.make(metadata);
+      creationDate = Option.make(Time.now());
+    });
+  };
+
+  func checkTag(tag : Text) : async Bool {
+    let hub_instant_canister : Types.InstantReputationUpdateEvent = actor (hub_canister_id);
+    let tags : [(Text, Nat8)] = await hub_instant_canister.getTags();
+    var found = false;
+    for (t in tags.vals()) {
+      if (Text.equal(t.0, tag)) {
+        found := true;
+      };
+    };
+    return found;
+  };
+
   public shared ({ caller }) func issue(issueArgs : Types.IssueArgs) : async Types.MintReceipt {
     let result = await mint(issueArgs.mint_args);
-    var token_id = 0;
-    switch (result) {
-      case (#Ok(reciept)) {};
+    let tokenId = switch (result) {
+      case (#Ok(reciept)) { reciept };
       case (#Err(err)) { return #Err(#Unauthorized) };
     };
-    //TODO emit event #CreateEvent and make reputation call
-    /*
-     public type CreateEvent = actor {
-        emit : Event -> async Result.Result<[(Text, Text)], Text>;
-     };
-     //hub
-     emitEvent(event : E.Event) : async [Subscriber]
-    */
+
     let event : Types.Event = {
-      eventType = #CreateEvent;
+      eventType = #InstantReputationUpdateEvent;
       topics = Utils.convertMetadataToEventField(issueArgs.mint_args.metadata);
-      tokenId = Option.make(token_id);
+      tokenId = ?tokenId;
       owner = Option.make(caller);
-      metadata = Option.make(Utils.convertMetadataToTextPairs(issueArgs.mint_args.metadata));
+      metadata : ?[(Text, Types.Metadata)] = Option.make([
+        ("reputation_value", #Nat(Nat8.toNat(issueArgs.reputation.value))),
+        ("reputation_comment", #Text(issueArgs.reputation.comment)),
+      ]);
       creationDate = Option.make(Time.now());
     };
-    let canister : Types.CreateEvent = actor (hub_canister_id);
-    let emitResult = await canister.emitEvent(event);
+    let hub_instant_canister : Types.InstantReputationUpdateEvent = actor (hub_canister_id);
 
-    let repArgs = Utils.issueArgsToRepArgs(issueArgs);
-    // let reputation = await rep.addReputation(caller, repArgs);
-    //TODO convert reputation response to Result
-    return result;
+    let comment = issueArgs.reputation.comment;
+    let args : Types.DocHistoryArgs = {
+      user = Option.get<Principal>(event.owner, caller);
+      docId = Option.get<Nat>(event.tokenId, 0);
+      value = 10;
+      comment = comment;
+    };
+    // let emitResult = await hub_canister.emitEvent(event);
+    let emitInstantResult = await hub_instant_canister.eventHandler(args);
+    if (emitInstantResult == "Event InstantReputationUpdateEvent was handled") {
+      return result;
+    };
+    return #Err(#Unauthorized);
   };
 
   public shared query func icrc7_collection_metadata() : async Types.CollectionMetadata {
@@ -418,6 +495,9 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     _incrementTotalSupply(1);
 
     let transaction : Types.Transaction = _addTransaction(#mint, now, ?[mintArgs.token_id], ?acceptedTo, null, null, null, null, null);
+
+    // update token counter
+    next_token_id := next_token_id + 1;
 
     return #Ok(mintArgs.token_id);
   };

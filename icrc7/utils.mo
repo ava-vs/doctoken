@@ -101,10 +101,10 @@ module {
 		return Text.compare(accountToText(a), accountToText(b));
 	};
 
-	public func issueArgsToRepArgs(issueArgs : Types.IssueArgs) : Types.RepArgs {
-		//TODO impl
-		return issueArgs;
-	};
+	// public func issueArgsToRepArgs(issueArgs : Types.IssueArgs) : Types.RepArgs {
+	// 	//TODO impl
+	// 	return issueArgs;
+	// };
 
 	public func convertMetadataToEventField(metadata : [(Text, Types.Metadata)]) : [Types.EventField] {
 		return Array.map<(Text, Types.Metadata), Types.EventField>(
@@ -135,6 +135,26 @@ module {
 				(name, valueText);
 			},
 		);
+	};
+
+	public func textToEventName(text : Text) : Types.EventName {
+		switch (text) {
+			case ("EmitEvent") return #EmitEvent;
+			case ("InstantReputationUpdateEvent") return #InstantReputationUpdateEvent;
+			case ("AwaitingReputationUpdateEvent") return #AwaitingReputationUpdateEvent;
+			case ("FeedbackSubmissionEvent") return #FeedbackSubmissionEvent;
+
+			case (_) #Unknown;
+		};
+	};
+	public func eventNameToText(eventName : Types.EventName) : Text {
+		switch (eventName) {
+			case (#EmitEvent) return "EmitEvent";
+			case (#InstantReputationUpdateEvent) return "InstantReputationUpdateEvent";
+			case (#AwaitingReputationUpdateEvent) return "AwaitingReputationUpdateEvent";
+			case (#FeedbackSubmissionEvent) return "FeedbackSubmissionEvent";
+			case (_) "Unknown";
+		};
 	};
 
 	public func textFromBlob(blob : Blob) : Text {

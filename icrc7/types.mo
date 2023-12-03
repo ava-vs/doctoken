@@ -75,8 +75,10 @@ module {
   };
 
   public type Reputation = {
-    tag : Tag;
+    user : Principal;
     value : Nat8;
+    comment : Text;
+    tag : Tag;
   };
 
   public type Tag = {
@@ -214,16 +216,40 @@ module {
     transactions : [Transaction];
   };
 
-  public type CreateEvent = actor {
-    emitEvent : Event -> async Result.Result<[(Text, Text)], Text>;
+  public type DocHistoryArgs = {
+    user : Principal;
+    docId : Nat;
+    value : Nat8;
+    comment : Text;
   };
+
+  public type EventError = MintError or {
+    #TagNotFound : { tag : Text };
+    #TemporarilyUnavailable;
+    #GenericError : { error_code : Nat; message : Text };
+  };
+
+  public type Branch = Nat8;
+
+  public type InstantReputationUpdateEvent = actor {
+    getTags : () -> async [(Text, Branch)];
+    eventHandler : (DocHistoryArgs) -> async Text;
+  };
+  public type AwaitingReputationUpdateEvent = actor {
+    updateReputation : (Event) -> async Result.Result<[(Text, Text)], Text>;
+  };
+  public type FeedbackSubmissionEvent = actor {
+    feedbackSubmission : (Event) -> async Result.Result<[(Text, Text)], Text>;
+  };
+
+  public type Topic = EventFilter;
 
   public type Event = {
     eventType : EventName;
     topics : [EventField];
     tokenId : ?Nat;
     owner : ?Principal;
-    metadata : ?[(Text, Text)];
+    metadata : ?[(Text, Metadata)];
     creationDate : ?Int;
   };
 
@@ -243,13 +269,10 @@ module {
   };
 
   public type EventName = {
-    #CreateEvent;
-    #BurnEvent;
-    #CollectionCreatedEvent;
-    #CollectionUpdatedEvent;
-    #CollectionDeletedEvent;
-    #AddToCollectionEvent;
-    #RemoveFromCollectionEvent;
+    #EmitEvent;
+    #InstantReputationUpdateEvent;
+    #AwaitingReputationUpdateEvent;
+    #FeedbackSubmissionEvent;
     #Unknown;
   };
 };

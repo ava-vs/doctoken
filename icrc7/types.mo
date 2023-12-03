@@ -46,7 +46,19 @@ module {
 
   public type TokenId = Nat;
 
-  public type Metadata = { #Nat : Nat; #Int : Int; #Text : Text; #Blob : Blob };
+  public type Document = {
+    tokenId : TokenId;
+    owner : Principal;
+    metadata : [(Text, Metadata)];
+  };
+
+  public type Metadata = {
+    #Nat : Nat;
+    #Int : Int;
+    #Text : Text;
+    #Blob : Blob;
+    #Bool : Bool;
+  };
 
   public type TokenMetadata = {
     tokenId : TokenId;
@@ -233,7 +245,7 @@ module {
 
   public type InstantReputationUpdateEvent = actor {
     getTags : () -> async [(Text, Branch)];
-    eventHandler : (DocHistoryArgs) -> async Text;
+    emitEvent : (Event) -> async Text;
   };
   public type AwaitingReputationUpdateEvent = actor {
     updateReputation : (Event) -> async Result.Result<[(Text, Text)], Text>;

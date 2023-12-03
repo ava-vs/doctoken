@@ -158,7 +158,6 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
       case (#Ok(reciept)) { reciept };
       case (#Err(err)) { return #Err(#Unauthorized) };
     };
-
     // create #InstantReputationUpdateEvent event
     let event : Types.Event = {
       eventType = #InstantReputationUpdateEvent;
@@ -168,24 +167,40 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
       metadata : ?[(Text, Types.Metadata)] = Option.make([
         ("reputation_value", #Nat(Nat8.toNat(issueArgs.reputation.value))),
         ("reputation_comment", #Text(issueArgs.reputation.comment)),
+        ("reputation_tag", #Text(issueArgs.reputation.tag.name)),
       ]);
       creationDate = Option.make(Time.now());
     };
     let hub_instant_canister : Types.InstantReputationUpdateEvent = actor (hub_canister_id);
 
-    let comment = issueArgs.reputation.comment;
     let args : Types.DocHistoryArgs = {
       user = Option.get<Principal>(event.owner, caller);
       docId = Option.get<Nat>(event.tokenId, 0);
-      value = 10;
-      comment = comment;
+      value = issueArgs.reputation.value;
+      comment = issueArgs.reputation.comment;
     };
     // call aVa Event Hub with the event
-    let emitInstantResult = await hub_instant_canister.eventHandler(args);
+    let emitInstantResult = await hub_instant_canister.emitEvent(event);
     if (emitInstantResult == "Event InstantReputationUpdateEvent was handled") {
       return result;
     };
     return #Err(#Unauthorized);
+  };
+
+  public shared query func getDocumentById(tokenId : Types.TokenId) : async ?Types.Document {
+    let item = Trie.get(tokens, _keyFromTokenId tokenId, Nat.equal);
+    switch (item) {
+      case null {
+        return null;
+      };
+      case (?_elem) {
+        return ?{
+          tokenId = tokenId;
+          owner = _elem.owner.owner;
+          metadata = _elem.metadata;
+        };
+      };
+    };
   };
 
   public shared query func icrc7_collection_metadata() : async Types.CollectionMetadata {
@@ -459,9 +474,9 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     let acceptedTo : Types.Account = _acceptAccount(mintArgs.to);
 
     //todo add a more complex roles management
-    if (Principal.notEqual(caller, owner.owner)) {
-      return #Err(#Unauthorized);
-    };
+    // if (Principal.notEqual(caller, owner.owner)) {
+    //   return #Err(#Unauthorized);
+    // };
 
     //check on supply cap overflow
     if (supplyCap != null) {

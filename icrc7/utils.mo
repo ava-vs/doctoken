@@ -101,20 +101,20 @@ module {
 		return Text.compare(accountToText(a), accountToText(b));
 	};
 
-	// public func issueArgsToRepArgs(issueArgs : Types.IssueArgs) : Types.RepArgs {
-	// 	//TODO impl
-	// 	return issueArgs;
-	// };
-
 	public func convertMetadataToEventField(metadata : [(Text, Types.Metadata)]) : [Types.EventField] {
 		return Array.map<(Text, Types.Metadata), Types.EventField>(
 			metadata,
 			func((name, value)) {
 				let valueBlob = switch (value) {
 					case (#Nat(n)) { Text.encodeUtf8(Nat.toText(n)) };
+					case (#Nat8(n)) { Text.encodeUtf8(Nat8.toText(n)) };
 					case (#Int(i)) { Text.encodeUtf8(Int.toText(i)) };
 					case (#Text(t)) { Text.encodeUtf8(t) };
 					case (#Blob(b)) { b };
+					case (#Bool(b)) {
+						if (b) Blob.fromArray([1]) else Blob.fromArray([0]);
+					};
+
 				};
 				{ name = name; value = valueBlob };
 			},
@@ -128,9 +128,13 @@ module {
 				let (name, value) = pair;
 				let valueText = switch (value) {
 					case (#Nat(n)) { Nat.toText(n) };
+					case (#Nat8(n)) { Nat8.toText(n) };
 					case (#Int(i)) { Int.toText(i) };
 					case (#Text(t)) { t };
 					case (#Blob(b)) { textFromBlob(b) };
+					case (#Bool(b)) {
+						if (b) "true" else "false";
+					};
 				};
 				(name, valueText);
 			},

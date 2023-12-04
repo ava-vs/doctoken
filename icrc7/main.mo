@@ -90,17 +90,16 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
       return #err(#TagNotFound { tag = "Tag " # tag # " Not Found" });
     };
     let eventType = Option.get<Types.EventName>(topic.eventType, #InstantReputationUpdateEvent);
-    let metadata : [(Text, Types.Metadata)] = [
-      ("comment", #Text(comment)),
-      ("tag", #Text(tag)),
-      ("topic_field", #Blob(Blob.fromArray([68]))),
+    let topic_fields : [(Text, Types.Metadata)] = [
+      ("name", #Text(topic.fieldFilters[0].name)),
+      ("value", #Blob(topic.fieldFilters[0].value)),
     ];
 
     let issueArgs : Types.IssueArgs = {
       mint_args = {
         to = { owner = caller; subaccount = null };
         token_id = next_token_id;
-        metadata = metadata;
+        metadata = topic_fields;
       };
       reputation = {
         user = user;
@@ -129,17 +128,24 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
       };
       case (#Ok(id)) { id };
     };
+    let token_metadata = [
+      ("reputation_user", #Text(Principal.toText(user))),
+      ("reputation_value", #Nat8(rep_value)),
+      ("reputation_comment", #Text(comment)),
+      ("reputation_tag", #Text(tag)),
+    ];
     return #ok({
       eventType = eventType;
-      topics = Utils.convertMetadataToEventField(metadata);
+      topics = Utils.convertMetadataToEventField(topic_fields);
       tokenId = ?tokenId;
       owner = Option.make(caller);
-      metadata = Option.make(metadata);
+      metadata = Option.make(token_metadata);
       creationDate = Option.make(Time.now());
     });
   };
 
   func checkTag(tag : Text) : async Bool {
+    // TODO return cipher
     let hub_instant_canister : Types.InstantReputationUpdateEvent = actor (hub_canister_id);
     let tags : [(Text, Nat8)] = await hub_instant_canister.getTags();
     var found = false;

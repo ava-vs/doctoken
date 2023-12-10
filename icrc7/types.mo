@@ -48,6 +48,7 @@ module {
 
   public type Document = {
     tokenId : TokenId;
+    categories : [Text];
     owner : Principal;
     metadata : [(Text, Metadata)];
   };
@@ -64,6 +65,7 @@ module {
   public type TokenMetadata = {
     tokenId : TokenId;
     owner : Account;
+    categories : [Text];
     metadata : [(Text, Metadata)];
   };
 
@@ -83,25 +85,20 @@ module {
 
   public type MintArgs = {
     to : Account;
-    // token_id : TokenId;
     metadata : [(Text, Metadata)];
   };
 
   public type Reputation = {
     user : Principal;
+    reviewer : Principal;
     value : Nat8;
     comment : Text;
-    tag : Tag;
-  };
-
-  public type Tag = {
-    cipher : ?Text;
-    name : Text;
-
+    category : Text;
   };
 
   public type IssueArgs = {
     mint_args : MintArgs;
+    topics : [EventField];
     reputation : Reputation;
   };
 
@@ -245,8 +242,8 @@ module {
   public type Branch = Nat8;
 
   public type InstantReputationUpdateEvent = actor {
-    getTags : () -> async [(Text, Branch)];
-    emitEvent : (Event) -> async Text;
+    getCategories : () -> async [(Text, Text)];
+    emitEvent : (Event) -> async [Subscriber];
   };
   public type AwaitingReputationUpdateEvent = actor {
     updateReputation : (Event) -> async Result.Result<[(Text, Text)], Text>;
@@ -257,13 +254,23 @@ module {
 
   public type Topic = EventFilter;
 
+  public type ReputationChangeRequest = {
+    user : Principal;
+    reviewer : ?Principal;
+    value : ?Nat;
+    category : Text;
+    timestamp : Nat;
+    source : (Text, Nat); // (doctoken_canisterId, documentId)
+    comment : ?Text;
+    metadata : ?[(Text, Metadata)];
+  };
+
   public type Event = {
     eventType : EventName;
     topics : [EventField];
-    tokenId : ?Nat;
-    owner : ?Principal;
-    metadata : ?[(Text, Metadata)];
-    creationDate : ?Int;
+    details : ?Text;
+    reputation_change : ReputationChangeRequest;
+    sender_hash : ?Text;
   };
 
   public type Subscriber = {

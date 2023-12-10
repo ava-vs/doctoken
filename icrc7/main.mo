@@ -4,23 +4,26 @@ import Bool "mo:base/Bool";
 import Buffer "mo:base/Buffer";
 import Hash "mo:base/Hash";
 import HashMap "mo:base/HashMap";
+import Int "mo:base/Int";
 import Nat "mo:base/Nat";
 import Nat16 "mo:base/Nat16";
 import Nat64 "mo:base/Nat64";
 import Nat8 "mo:base/Nat8";
 import Option "mo:base/Option";
 import Principal "mo:base/Principal";
+import Result "mo:base/Result";
 import Text "mo:base/Text";
 import Time "mo:base/Time";
 import Trie "mo:base/Trie";
-import Result "mo:base/Result";
 
 import Types "./types";
-import Utils "./utils";
+import Logger "Utils/Logger";
+import Utils "Utils/utils";
 
 shared actor class Collection(collectionOwner : Types.Account, init : Types.CollectionInitArgs) = Self {
 
   private stable let hub_canister_id = "a3qjj-saaaa-aaaal-adgoa-cai";
+  private stable let doctoken_canister_id = "h5x3q-hyaaa-aaaal-adg6q-cai"; // TODO change to method
   private stable var owner : Types.Account = collectionOwner;
 
   private stable var name : Text = init.name;
@@ -78,42 +81,64 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     { hash = Hash.hash t; key = t };
   };
 
-  // Form event arguments (metadata, reputation, etc.) from document's fields and issue Event
-  public shared ({ caller }) func createEvent(
-    rep_value : Nat8,
-    comment : Text,
-    tag : Text,
-    topic : Types.Topic,
-    user : Principal,
-  ) : async Result.Result<Types.Event, Types.EventError> {
-    if ((await checkTag(tag)) == false) {
-      return #err(#TagNotFound { tag = "Tag " # tag # " Not Found" });
+  // Logger
+  stable var state : Logger.State<Text> = Logger.new<Text>(0, null);
+  let logger = Logger.Logger<Text>(state);
+  let prefix = Utils.timestampToDate();
+
+  public func viewLogs(end : Nat) : async [Text] {
+    let view = logger.view(0, end);
+    let result = Buffer.Buffer<Text>(1);
+    for (message in view.messages.vals()) {
+      result.add(message);
     };
-    let eventType = Option.get<Types.EventName>(topic.eventType, #InstantReputationUpdateEvent);
-    let topic_fields : [(Text, Types.Metadata)] = [
-      ("name", #Text(topic.fieldFilters[0].name)),
-      ("value", #Blob(topic.fieldFilters[0].value)),
-    ];
+    Buffer.toArray(result);
+  };
+  public func clearAllLogs() : async Bool {
+    logger.clear();
+    true;
+  };
+
+  // Form event arguments (metadata, reputation, etc.) from document's fields and issue Event
+  public func createEvent(
+    eventType : Types.EventName,
+    user : Principal,
+    reviewer : Principal,
+    value : Nat8,
+    comment : Text,
+    category : Text,
+    topic_name : Text,
+    topic_value : Blob
+
+  ) : async Result.Result<Types.Event, Types.EventError> {
+    if ((await checkTag(category)) == false) {
+      return #err(#TagNotFound { tag = "Tag " # category # " Not Found" });
+    };
+    // let eventType = Option.get<Types.EventName>(topic.eventType, #InstantReputationUpdateEvent);
+    // let topic_fields : [(Text, Types.Metadata)] = [
+    //   // (topic name : text, topic value : blob)
+    //   (topic.fieldFilters[0].name, #Blob(topic.fieldFilters[0].value)),
+    // ];
+    let token_metadata = [("Test_Metadata_Tag", #Text(category))];
 
     let issueArgs : Types.IssueArgs = {
       mint_args = {
-        to = { owner = caller; subaccount = null };
+        to = { owner = user; subaccount = null };
         token_id = next_token_id;
-        metadata = topic_fields;
+        metadata = token_metadata;
       };
+      topics = [{ name = topic_name; value = topic_value }];
       reputation = {
         user = user;
-        value = rep_value;
+        reviewer = reviewer;
+        value = value;
         comment = comment;
-        tag = {
-          cipher = null;
-          name = tag;
-        };
+        category = category;
       };
     };
 
     // Call issue function
-    let issueResult = await issue(issueArgs);
+    let issueResult = await issue(user, issueArgs);
     let tokenId = switch (issueResult) {
       case (#Err(err)) {
         switch (err) {
@@ -128,26 +153,29 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
       };
       case (#Ok(id)) { id };
     };
-    let token_metadata = [
-      ("reputation_user", #Text(Principal.toText(user))),
-      ("reputation_value", #Nat8(rep_value)),
-      ("reputation_comment", #Text(comment)),
-      ("reputation_tag", #Text(tag)),
-    ];
+
     return #ok({
       eventType = eventType;
-      topics = Utils.convertMetadataToEventField(topic_fields);
-      tokenId = ?tokenId;
-      owner = Option.make(caller);
-      metadata = Option.make(token_metadata);
-      creationDate = Option.make(Time.now());
+      topics = issueArgs.topics;
+      details = null;
+      reputation_change = {
+        user = user;
+        reviewer = ?reviewer;
+        value = ?Nat8.toNat(issueArgs.reputation.value);
+        category = issueArgs.reputation.category;
+        source = (doctoken_canister_id, tokenId);
+        timestamp : Nat = Option.get<Nat>(Nat.fromText(Int.toText(Time.now())), 0);
+        comment = ?issueArgs.reputation.comment;
+        metadata : ?[(Text, Types.Metadata)] = Option.make([("Test", #Text(category))]);
+      };
+      sender_hash = null;
     });
   };
 
   func checkTag(tag : Text) : async Bool {
     // TODO return cipher
     let hub_instant_canister : Types.InstantReputationUpdateEvent = actor (hub_canister_id);
-    let tags : [(Text, Nat8)] = await hub_instant_canister.getTags();
+    let tags : [(Text, Text)] = await hub_instant_canister.getCategories();
     var found = false;
     for (t in tags.vals()) {
       if (Text.equal(t.0, tag)) {
@@ -157,9 +185,9 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     return found;
   };
 
-  public shared ({ caller }) func issue(issueArgs : Types.IssueArgs) : async Types.MintReceipt {
+  func issue(caller : Principal, issueArgs : Types.IssueArgs) : async Types.MintReceipt {
     // Mint a new doctoken from document
-    let result = await mint(issueArgs.mint_args);
+    let result = await mint([issueArgs.reputation.category], issueArgs.mint_args);
     let tokenId = switch (result) {
       case (#Ok(reciept)) { reciept };
       case (#Err(err)) { return #Err(#Unauthorized) };
@@ -167,41 +195,50 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     // create #InstantReputationUpdateEvent event
     let event : Types.Event = {
       eventType = #InstantReputationUpdateEvent;
-      topics = Utils.convertMetadataToEventField(issueArgs.mint_args.metadata);
-      tokenId = ?tokenId;
-      owner = Option.make(caller);
-      metadata : ?[(Text, Types.Metadata)] = Option.make([
-        ("reputation_value", #Nat(Nat8.toNat(issueArgs.reputation.value))),
-        ("reputation_comment", #Text(issueArgs.reputation.comment)),
-        ("reputation_tag", #Text(issueArgs.reputation.tag.name)),
-      ]);
-      creationDate = Option.make(Time.now());
+      topics = issueArgs.topics;
+      details = null;
+      reputation_change = {
+        user = caller;
+        reviewer = ?caller;
+        value = ?Nat8.toNat(issueArgs.reputation.value);
+        category = issueArgs.reputation.category;
+        source = (doctoken_canister_id, tokenId);
+        timestamp : Nat = Option.get<Nat>(Nat.fromText(Int.toText(Time.now())), 0);
+        comment = ?issueArgs.reputation.comment;
+        metadata : ?[(Text, Types.Metadata)] = Option.make([("Test", #Text(issueArgs.reputation.category))]);
+      };
+      sender_hash = null; // TODO add sender canister hash
+
     };
     let hub_instant_canister : Types.InstantReputationUpdateEvent = actor (hub_canister_id);
 
-    let args : Types.DocHistoryArgs = {
-      user = Option.get<Principal>(event.owner, caller);
-      docId = Option.get<Nat>(event.tokenId, 0);
-      value = issueArgs.reputation.value;
-      comment = issueArgs.reputation.comment;
-    };
+    let args : Types.ReputationChangeRequest = event.reputation_change;
+
     // call aVa Event Hub with the event
+
+    logger.append([prefix # " issue: call hub's emitEvent method"]);
+    // logger.append([prefix # "issue: event: eventType=" # Utils.eventNameToText(event.eventType)]);
+    // //  Utils.convertMetadataToTextPairs(Option.get<(Text, Types.Metadata)>(event.metadata, ("", #Text("")))).0]);
+    // let metadataToText = Utils.convertMetadataToTextPairs(Option.unwrap(event.metadata));
+    // logger.append([prefix # "issue: event: metadata=" # metadataToText[0].0 # ", " # metadataToText[0].1]);
     let emitInstantResult = await hub_instant_canister.emitEvent(event);
-    if (emitInstantResult == "Event InstantReputationUpdateEvent was handled") {
-      return result;
-    };
-    return #Err(#Unauthorized);
+    logger.append([prefix # " Method issue: event published Ok, number of subscribers: " # Nat.toText(emitInstantResult.size())]);
+    return result;
   };
 
-  public shared query func getDocumentById(tokenId : Types.TokenId) : async ?Types.Document {
+  public func getDocumentById(tokenId : Types.TokenId) : async ?Types.Document {
+    logger.append([prefix # " Method getDocumentById: Trying to find out document with tokenId=" # Nat.toText(tokenId)]);
     let item = Trie.get(tokens, _keyFromTokenId tokenId, Nat.equal);
     switch (item) {
       case null {
+        logger.append([prefix # " Method getDocumentById: document with tokenId=" # Nat.toText(tokenId) # " not found"]);
         return null;
       };
       case (?_elem) {
+        logger.append([prefix # " Method getDocumentById: document with tokenId=" # Nat.toText(tokenId) # " found successfully"]);
         return ?{
           tokenId = tokenId;
+          categories = _elem.categories;
           owner = _elem.owner.owner;
           metadata = _elem.metadata;
         };
@@ -475,7 +512,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     await icrc7_transfer(burnArg);
   };
 
-  public shared ({ caller }) func mint(mintArgs : Types.MintArgs) : async Types.MintReceipt {
+  public shared ({ caller }) func mint(categories : [Text], mintArgs : Types.MintArgs) : async Types.MintReceipt {
     let now = Nat64.fromIntWrap(Time.now());
     let acceptedTo : Types.Account = _acceptAccount(mintArgs.to);
 
@@ -507,6 +544,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     let newToken : Types.TokenMetadata = {
       tokenId = next_token_id;
       owner = acceptedTo;
+      categories = categories;
       metadata = mintArgs.metadata;
     };
 
@@ -687,6 +725,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
         let newToken : Types.TokenMetadata = {
           tokenId = _elem.tokenId;
           owner = Utils.nullishCoalescing<Types.Account>(newOwner, _elem.owner);
+          categories = _elem.categories;
           metadata = Utils.nullishCoalescing<[(Text, Types.Metadata)]>(newMetadata, _elem.metadata);
         };
 

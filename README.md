@@ -2,7 +2,7 @@
 
 ## Overview
 
-Cooming soon...
+Coming soon...
 
 ## ICRC-7 Specification
 
@@ -11,34 +11,43 @@ For standard methods and structures documentation, read the [specifications](htt
 ### Deployment
 
 ### Available methods
+All ICRC-7 methods available except icrc7_transfer
 
-#### mint
-
-Mint one token to the `to` account. Only the canister owner Account can mint a new token.
-If the caller is not the owner, the ledger returns `variant { Unauthorized }` error.
-The ledger can implement a supply cap. If the supply cap is set and the number of minted tokens has reach the supply cap, the ledger returns `variant { SupplyCapOverflow }`.
-If the `to` account is equal to the `NULL_ACCOUNT`, the ledger returns `variant { InvalidRecipient }`.
-If the caller is trying to mint an existing token id, the ledger returns `variant { AlreadyExistTokenId }`.
-
+Additional method: 
+#### burn
 ```candid "Methods" +=
-mint : (MintArgs) -> (variant { Ok: nat; Err: MintError; });
+burnArg : (TransferArgs) -> (variant { Ok: nat; Err: TransferError; });
 ```
 
 ```candid "Type definitions" +=
-type MintArgs = record {
-    to: Account;
-    token_id: nat;
-    metadata: vec record { text; Metadata };
-};
+type Subaccount = blob;
 
-type MintError = variant {
-    Unauthorized;
-    SupplyCapOverflow;
-    InvalidRecipient;
-    AlreadyExistTokenId;
-    GenericError: record { error_code : nat; message : text };
-};
+type Account = record {
+		owner: principal; 
+		subaccount: opt blob;
+  };
+  
+type TransferArgs = record {
+    spender_subaccount: opt Subaccount; // the subaccount of the caller (used to identify the spender)
+    from: opt Account;     /* if supplied and is not caller then is permit transfer, if not supplied defaults to subaccount 0 of the caller principal */
+    to: Account;
+    token_ids: vec {nat};   
+    memo: ?Blob;
+    created_at_time: opt nat64;
+    is_atomic: opt bool;
+  };
+
+type TransferError = variant {
+    Unauthorized: record { token_ids: vec (nat) };
+    TooOld;
+    CreatedInFuture: record { ledger_time: nat };
+    Duplicate: record { duplicate_of: nat };
+    TemporarilyUnavailable: {};
+    GenericError: record { error_code: nat; message: text };
+  };
 ```
+
+
 
 
 

@@ -23,7 +23,7 @@ import Utils "Utils/utils";
 shared actor class Collection(collectionOwner : Types.Account, init : Types.CollectionInitArgs) = Self {
 
   private stable let hub_canister_id = "a3qjj-saaaa-aaaal-adgoa-cai";
-  private stable let doctoken_canister_id = "h5x3q-hyaaa-aaaal-adg6q-cai"; // TODO change to method
+  private stable let doctoken_canister_id = "h5x3q-hyaaa-aaaal-adg6q-cai";
   private stable var owner : Types.Account = collectionOwner;
 
   private stable var name : Text = init.name;
@@ -99,6 +99,10 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     true;
   };
 
+  public func canisterIdQuick() : async Principal {
+    return Principal.fromActor(Self);
+  };
+
   // Form event arguments (metadata, reputation, etc.) from document's fields and issue Event
   public func createEvent(
     eventType : Types.EventName,
@@ -153,7 +157,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
       };
       case (#Ok(id)) { id };
     };
-
+    let source_canister_id = Principal.toText(Principal.fromActor(Self));
     return #ok({
       eventType = eventType;
       topics = issueArgs.topics;
@@ -163,7 +167,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
         reviewer = ?reviewer;
         value = ?Nat8.toNat(issueArgs.reputation.value);
         category = issueArgs.reputation.category;
-        source = (doctoken_canister_id, tokenId);
+        source = (source_canister_id, tokenId);
         timestamp : Nat = Option.get<Nat>(Nat.fromText(Int.toText(Time.now())), 0);
         comment = ?issueArgs.reputation.comment;
         metadata : ?[(Text, Types.Metadata)] = Option.make([("Test", #Text(category))]);
@@ -193,6 +197,8 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
       case (#Err(err)) { return #Err(#Unauthorized) };
     };
     // create #InstantReputationUpdateEvent event
+    let source_canister_id = Principal.toText(Principal.fromActor(Self));
+
     let event : Types.Event = {
       eventType = #InstantReputationUpdateEvent;
       topics = issueArgs.topics;
@@ -202,7 +208,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
         reviewer = ?caller;
         value = ?Nat8.toNat(issueArgs.reputation.value);
         category = issueArgs.reputation.category;
-        source = (doctoken_canister_id, tokenId);
+        source = (source_canister_id, tokenId);
         timestamp : Nat = Option.get<Nat>(Nat.fromText(Int.toText(Time.now())), 0);
         comment = ?issueArgs.reputation.comment;
         metadata : ?[(Text, Types.Metadata)] = Option.make([("Test", #Text(issueArgs.reputation.category))]);
@@ -217,10 +223,6 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     // call aVa Event Hub with the event
 
     logger.append([prefix # " issue: call hub's emitEvent method"]);
-    // logger.append([prefix # "issue: event: eventType=" # Utils.eventNameToText(event.eventType)]);
-    // //  Utils.convertMetadataToTextPairs(Option.get<(Text, Types.Metadata)>(event.metadata, ("", #Text("")))).0]);
-    // let metadataToText = Utils.convertMetadataToTextPairs(Option.unwrap(event.metadata));
-    // logger.append([prefix # "issue: event: metadata=" # metadataToText[0].0 # ", " # metadataToText[0].1]);
     let emitInstantResult = await hub_instant_canister.emitEvent(event);
     logger.append([prefix # " Method issue: event published Ok, number of subscribers: " # Nat.toText(emitInstantResult.size())]);
     return result;

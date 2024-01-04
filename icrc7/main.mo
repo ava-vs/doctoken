@@ -4,19 +4,28 @@ import Bool "mo:base/Bool";
 import Buffer "mo:base/Buffer";
 import Hash "mo:base/Hash";
 import HashMap "mo:base/HashMap";
+import Int "mo:base/Int";
 import Nat "mo:base/Nat";
 import Nat16 "mo:base/Nat16";
 import Nat64 "mo:base/Nat64";
+import Nat8 "mo:base/Nat8";
+import Option "mo:base/Option";
 import Principal "mo:base/Principal";
+import Result "mo:base/Result";
 import Text "mo:base/Text";
 import Time "mo:base/Time";
 import Trie "mo:base/Trie";
 
 import Types "./types";
-import Utils "./utils";
+import Logger "Utils/Logger";
+import Utils "Utils/utils";
 
 shared actor class Collection(collectionOwner : Types.Account, init : Types.CollectionInitArgs) = Self {
+
+  private stable let hub_canister_id = "a3qjj-saaaa-aaaal-adgoa-cai";
+  private stable let doctoken_canister_id = "h5x3q-hyaaa-aaaal-adg6q-cai"; // TODO change to method
   private stable var owner : Types.Account = collectionOwner;
+  let owner_principal = owner.owner;
 
   private stable var name : Text = init.name;
   private stable var symbol : Text = init.symbol;
@@ -36,6 +45,8 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
   private var TX_WINDOW : Nat64 = 24 * 60 * 60 * 1_000_000_000; // 24 hours in nanoseconds
 
   private stable var tokens : Trie<Types.TokenId, Types.TokenMetadata> = Trie.empty();
+  private stable var next_token_id : Types.TokenId = 0;
+
   //owner Trie: use of Text insted of Account to improve performanances in lookup
   private stable var owners : Trie<Text, [Types.TokenId]> = Trie.empty(); //fast lookup
   //balances Trie: use of Text insted of Account to improve performanances in lookup (could also retrieve this from owners[account].size())
@@ -55,7 +66,8 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
   // see https://internetcomputer.org/docs/current/motoko/main/base/Trie
   type Trie<K, V> = Trie.Trie<K, V>;
   type Key<K> = Trie.Key<K>;
-
+  type UserId = Principal;
+  type Set<T> = Trie.Trie<T, ()>;
   // we have to provide `put`, `get` and `remove` with
   // a record of type `Key<K> = { hash: Hash.Hash; key: K }`;
   // thus we define the following function that takes a value of type `K`
@@ -69,6 +81,192 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
   };
   private func _keyFromTransactionId(t : Types.TransactionId) : Key<Types.TransactionId> {
     { hash = Hash.hash t; key = t };
+  };
+  private func _keyFromPrincipal(p : Principal) : Key<Principal> {
+    { hash = Principal.hash(p); key = p };
+  };
+
+  // Whitelist
+  private stable var whitelist : Set<Principal> = Trie.put(Trie.empty<Principal, ()>(), _keyFromPrincipal(owner_principal), Principal.equal, ()).0;
+
+  public shared ({ caller }) func addUser(userId : UserId) : async Bool {
+    if (await isUserInWhitelist(caller)) whitelist := Trie.put(whitelist, _keyFromPrincipal userId, Principal.equal, ()).0;
+    await isUserInWhitelist(userId);
+  };
+
+  public shared ({ caller }) func removeUser(userId : UserId) : async Bool {
+    if (await isUserInWhitelist(caller)) whitelist := Trie.remove(whitelist, _keyFromPrincipal userId, Principal.equal).0;
+    not (await isUserInWhitelist(userId));
+  };
+
+  public query func isUserInWhitelist(userId : Principal) : async Bool {
+    switch (Trie.get(whitelist, _keyFromPrincipal(userId), Principal.equal)) {
+      case (null) { false }; // User not found
+      case (_) { true }; // User found
+    };
+  };
+
+  // Logger
+  stable var state : Logger.State<Text> = Logger.new<Text>(0, null);
+  let logger = Logger.Logger<Text>(state);
+  let prefix = Utils.timestampToDate();
+
+  public func viewLogs(end : Nat) : async [Text] {
+    let view = logger.view(0, end);
+    let result = Buffer.Buffer<Text>(1);
+    for (message in view.messages.vals()) {
+      result.add(message);
+    };
+    Buffer.toArray(result);
+  };
+  public func clearAllLogs() : async Bool {
+    logger.clear();
+    true;
+  };
+
+  // Form event arguments (metadata, reputation, etc.) from document's fields and issue Event
+  public shared ({ caller }) func createEvent(
+    eventType : Types.EventName,
+    user : Principal,
+    reviewer : Principal,
+    value : Nat8,
+    comment : Text,
+    category : Text,
+    topic_name : Text,
+    topic_value : Blob
+
+  ) : async Result.Result<Types.Event, Types.EventError> {
+    if (await isUserInWhitelist(caller)) {
+      if ((await checkTag(category)) == false) {
+        return #err(#TagNotFound { tag = "Tag " # category # " Not Found" });
+      };
+      let token_metadata = [("Test_Metadata_Tag", #Text(category))];
+
+      let issueArgs : Types.IssueArgs = {
+        mint_args = {
+          to = { owner = user; subaccount = null };
+          token_id = next_token_id;
+          metadata = token_metadata;
+        };
+        topics = [{ name = topic_name; value = topic_value }];
+        reputation = {
+          user = user;
+          reviewer = reviewer;
+          value = value;
+          comment = comment;
+          category = category;
+        };
+      };
+
+      // Call issue function
+      let issueResult = await issue(user, issueArgs);
+      let tokenId = switch (issueResult) {
+        case (#Err(err)) {
+          switch (err) {
+            case (#Unauthorized) return #err(#Unauthorized);
+            case (#SupplyCapOverflow) return #err(#SupplyCapOverflow);
+            case (#AlreadyExistTokenId) return #err(#AlreadyExistTokenId);
+            case (#GenericError { error_code; message }) {
+              return #err(#GenericError { error_code = error_code; message = message });
+            };
+            case (#InvalidRecipient) return #err(#InvalidRecipient);
+          };
+        };
+        case (#Ok(id)) { id };
+      };
+
+      return #ok({
+        eventType = eventType;
+        topics = issueArgs.topics;
+        details = null;
+        reputation_change = {
+          user = user;
+          reviewer = ?reviewer;
+          value = ?Nat8.toNat(issueArgs.reputation.value);
+          category = issueArgs.reputation.category;
+          source = (doctoken_canister_id, tokenId);
+          timestamp : Nat = Option.get<Nat>(Nat.fromText(Int.toText(Time.now())), 0);
+          comment = ?issueArgs.reputation.comment;
+          metadata : ?[(Text, Types.Metadata)] = Option.make([("Test", #Text(category))]);
+        };
+        sender_hash = null;
+      });
+    };
+    return #err(#Unauthorized);
+  };
+
+  func checkTag(tag : Text) : async Bool {
+    // TODO return cipher
+    let hub_instant_canister : Types.InstantReputationUpdateEvent = actor (hub_canister_id);
+    let tags : [(Text, Text)] = await hub_instant_canister.getCategories();
+    var found = false;
+    for (t in tags.vals()) {
+      if (Text.equal(t.0, tag)) {
+        found := true;
+      };
+    };
+    return found;
+  };
+
+  func issue(caller : Principal, issueArgs : Types.IssueArgs) : async Types.MintReceipt {
+    // Mint a new doctoken from document
+    let result = await mint([issueArgs.reputation.category], issueArgs.mint_args);
+    let tokenId = switch (result) {
+      case (#Ok(reciept)) { reciept };
+      case (#Err(err)) { return #Err(#Unauthorized) };
+    };
+    // create #InstantReputationUpdateEvent event
+    let event : Types.Event = {
+      eventType = #InstantReputationUpdateEvent;
+      topics = issueArgs.topics;
+      details = null;
+      reputation_change = {
+        user = caller;
+        reviewer = ?caller;
+        value = ?Nat8.toNat(issueArgs.reputation.value);
+        category = issueArgs.reputation.category;
+        source = (doctoken_canister_id, tokenId);
+        timestamp : Nat = Option.get<Nat>(Nat.fromText(Int.toText(Time.now())), 0);
+        comment = ?issueArgs.reputation.comment;
+        metadata : ?[(Text, Types.Metadata)] = Option.make([("Test", #Text(issueArgs.reputation.category))]);
+      };
+      sender_hash = null; // TODO add sender canister hash
+
+    };
+    let hub_instant_canister : Types.InstantReputationUpdateEvent = actor (hub_canister_id);
+
+    let args : Types.ReputationChangeRequest = event.reputation_change;
+
+    // call aVa Event Hub with the event
+
+    logger.append([prefix # " issue: call hub's emitEvent method"]);
+    // logger.append([prefix # "issue: event: eventType=" # Utils.eventNameToText(event.eventType)]);
+    // //  Utils.convertMetadataToTextPairs(Option.get<(Text, Types.Metadata)>(event.metadata, ("", #Text("")))).0]);
+    // let metadataToText = Utils.convertMetadataToTextPairs(Option.unwrap(event.metadata));
+    // logger.append([prefix # "issue: event: metadata=" # metadataToText[0].0 # ", " # metadataToText[0].1]);
+    let emitInstantResult = await hub_instant_canister.emitEvent(event);
+    logger.append([prefix # " Method issue: event published Ok, number of subscribers: " # Nat.toText(emitInstantResult.size())]);
+    return result;
+  };
+
+  public shared query func getDocumentById(tokenId : Types.TokenId) : async ?Types.Document {
+    logger.append([prefix # " Method getDocumentById: Trying to find out document with tokenId=" # Nat.toText(tokenId)]);
+    let item = Trie.get(tokens, _keyFromTokenId tokenId, Nat.equal);
+    switch (item) {
+      case null {
+        logger.append([prefix # " Method getDocumentById: document with tokenId=" # Nat.toText(tokenId) # " not found"]);
+        return null;
+      };
+      case (?_elem) {
+        logger.append([prefix # " Method getDocumentById: document with tokenId=" # Nat.toText(tokenId) # " found successfully"]);
+        return ?{
+          tokenId = tokenId;
+          categories = _elem.categories;
+          owner = _elem.owner.owner;
+          metadata = _elem.metadata;
+        };
+      };
+    };
   };
 
   public shared query func icrc7_collection_metadata() : async Types.CollectionMetadata {
@@ -169,100 +367,106 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
   };
 
   public shared ({ caller }) func icrc7_transfer(transferArgs : Types.TransferArgs) : async Types.TransferReceipt {
-    // Soulbound check
-    if (transferArgs.to.owner != caller) return #Err(#Unauthorized({ token_ids = transferArgs.token_ids }));
+    if (await isUserInWhitelist(caller)) {
+      // Soulbound check
+      if (transferArgs.to.owner != caller) return #Err(#Unauthorized({ token_ids = transferArgs.token_ids }));
 
-    let now = Nat64.fromIntWrap(Time.now());
+      let now = Nat64.fromIntWrap(Time.now());
 
-    let callerSubaccount : Types.Subaccount = switch (transferArgs.spender_subaccount) {
-      case null _getDefaultSubaccount();
-      case (?_elem) _elem;
-    };
-    let acceptedCaller : Types.Account = _acceptAccount({
-      owner = caller;
-      subaccount = ?callerSubaccount;
-    });
+      let callerSubaccount : Types.Subaccount = switch (transferArgs.spender_subaccount) {
+        case null _getDefaultSubaccount();
+        case (?_elem) _elem;
+      };
+      let acceptedCaller : Types.Account = _acceptAccount({
+        owner = caller;
+        subaccount = ?callerSubaccount;
+      });
 
-    let acceptedFrom : Types.Account = switch (transferArgs.from) {
-      case null acceptedCaller;
-      case (?_elem) _acceptAccount(_elem);
-    };
-
-    let acceptedTo : Types.Account = _acceptAccount(transferArgs.to);
-
-    if (transferArgs.created_at_time != null) {
-      if (Nat64.less(Utils.nullishCoalescing<Nat64>(transferArgs.created_at_time, 0), now - TX_WINDOW - PERMITTED_DRIFT)) {
-        return #Err(#TooOld());
+      let acceptedFrom : Types.Account = switch (transferArgs.from) {
+        case null acceptedCaller;
+        case (?_elem) _acceptAccount(_elem);
       };
 
-      if (Nat64.greater(Utils.nullishCoalescing<Nat64>(transferArgs.created_at_time, 0), now + PERMITTED_DRIFT)) {
-        return #Err(#CreatedInFuture({ ledger_time = now }));
+      let acceptedTo : Types.Account = _acceptAccount(transferArgs.to);
+
+      if (transferArgs.created_at_time != null) {
+        if (Nat64.less(Utils.nullishCoalescing<Nat64>(transferArgs.created_at_time, 0), now - TX_WINDOW - PERMITTED_DRIFT)) {
+          return #Err(#TooOld());
+        };
+
+        if (Nat64.greater(Utils.nullishCoalescing<Nat64>(transferArgs.created_at_time, 0), now + PERMITTED_DRIFT)) {
+          return #Err(#CreatedInFuture({ ledger_time = now }));
+        };
+
       };
 
-    };
-
-    if (transferArgs.token_ids.size() == 0) {
-      return #Err(#GenericError({ error_code = _transferErrorCodeToCode(#EmptyTokenIds); message = _transferErrorCodeToText(#EmptyTokenIds) }));
-    };
-
-    //no duplicates in token ids are allowed
-    let duplicatesCheckHashMap = HashMap.HashMap<Types.TokenId, Bool>(5, Nat.equal, Hash.hash);
-    for (tokenId in transferArgs.token_ids.vals()) {
-      let duplicateCheck = duplicatesCheckHashMap.get(tokenId);
-      if (duplicateCheck != null) {
-        return #Err(#GenericError({ error_code = _transferErrorCodeToCode(#DuplicateInTokenIds); message = _transferErrorCodeToText(#DuplicateInTokenIds) }));
+      if (transferArgs.token_ids.size() == 0) {
+        return #Err(#GenericError({ error_code = _transferErrorCodeToCode(#EmptyTokenIds); message = _transferErrorCodeToText(#EmptyTokenIds) }));
       };
-    };
 
-    //by default is_atomic is true
-    let isAtomic : Bool = Utils.nullishCoalescing<Bool>(transferArgs.is_atomic, true);
+      //no duplicates in token ids are allowed
+      let duplicatesCheckHashMap = HashMap.HashMap<Types.TokenId, Bool>(5, Nat.equal, Hash.hash);
+      for (tokenId in transferArgs.token_ids.vals()) {
+        let duplicateCheck = duplicatesCheckHashMap.get(tokenId);
+        if (duplicateCheck != null) {
+          return #Err(#GenericError({ error_code = _transferErrorCodeToCode(#DuplicateInTokenIds); message = _transferErrorCodeToText(#DuplicateInTokenIds) }));
+        };
+      };
 
-    //? should be added here deduplication?
+      //by default is_atomic is true
+      let isAtomic : Bool = Utils.nullishCoalescing<Bool>(transferArgs.is_atomic, true);
 
-    if (isAtomic) {
+      //? should be added here deduplication?
+
+      if (isAtomic) {
+        let errors = Buffer.Buffer<Types.TransferError>(0); // Creates a new Buffer
+        for (tokenId in transferArgs.token_ids.vals()) {
+          let transferResult = _singleTransfer(?acceptedCaller, acceptedFrom, acceptedTo, tokenId, true, now);
+          switch (transferResult) {
+            case null {};
+            case (?_elem) errors.add(_elem);
+          };
+        };
+
+        //todo errors should be re-processed to aggregate tokenIds in order to have them in a single token_ids array (Unanthorized standard specifications)
+        if (errors.size() > 0) {
+          return #Err(errors.get(0));
+        };
+      };
+
+      let transferredTokenIds = Buffer.Buffer<Types.TokenId>(0); //Creates a new Buffer of transferred tokens
       let errors = Buffer.Buffer<Types.TransferError>(0); // Creates a new Buffer
       for (tokenId in transferArgs.token_ids.vals()) {
-        let transferResult = _singleTransfer(?acceptedCaller, acceptedFrom, acceptedTo, tokenId, true, now);
+        let transferResult = _singleTransfer(?acceptedCaller, acceptedFrom, acceptedTo, tokenId, false, now);
         switch (transferResult) {
-          case null {};
+          case null transferredTokenIds.add(tokenId);
           case (?_elem) errors.add(_elem);
         };
       };
 
-      //todo errors should be re-processed to aggregate tokenIds in order to have them in a single token_ids array (Unanthorized standard specifications)
+      if (isAtomic) {
+        assert (errors.size() == 0);
+      };
+
+      //? it's not clear if return the Err or Ok
       if (errors.size() > 0) {
         return #Err(errors.get(0));
       };
+
+      let transferId : Nat = transferSequentialIndex;
+      _incrementTransferIndex();
+
+      let transaction : Types.Transaction = _addTransaction(#icrc7_transfer, now, ?Buffer.toArray(transferredTokenIds), ?acceptedTo, ?acceptedFrom, ?acceptedCaller, transferArgs.memo, transferArgs.created_at_time, null);
+
+      return #Ok(transferId);
     };
-
-    let transferredTokenIds = Buffer.Buffer<Types.TokenId>(0); //Creates a new Buffer of transferred tokens
-    let errors = Buffer.Buffer<Types.TransferError>(0); // Creates a new Buffer
-    for (tokenId in transferArgs.token_ids.vals()) {
-      let transferResult = _singleTransfer(?acceptedCaller, acceptedFrom, acceptedTo, tokenId, false, now);
-      switch (transferResult) {
-        case null transferredTokenIds.add(tokenId);
-        case (?_elem) errors.add(_elem);
-      };
-    };
-
-    if (isAtomic) {
-      assert (errors.size() == 0);
-    };
-
-    //? it's not clear if return the Err or Ok
-    if (errors.size() > 0) {
-      return #Err(errors.get(0));
-    };
-
-    let transferId : Nat = transferSequentialIndex;
-    _incrementTransferIndex();
-
-    let transaction : Types.Transaction = _addTransaction(#icrc7_transfer, now, ?Buffer.toArray(transferredTokenIds), ?acceptedTo, ?acceptedFrom, ?acceptedCaller, transferArgs.memo, transferArgs.created_at_time, null);
-
-    return #Ok(transferId);
+    #Err(#Unauthorized({ token_ids = [] }));
   };
 
   public shared ({ caller }) func icrc7_approve(approvalArgs : Types.ApprovalArgs) : async Types.ApprovalReceipt {
+    if (not (await isUserInWhitelist(caller))) {
+      return #Err(#Unauthorized({ token_ids = [] }));
+    };
     let now = Nat64.fromIntWrap(Time.now());
 
     let callerSubaccount : Types.Subaccount = switch (approvalArgs.from_subaccount) {
@@ -325,6 +529,10 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
   };
 
   public shared ({ caller }) func burn(burnArg : Types.TransferArgs) : async Types.TransferReceipt {
+    if (not (await isUserInWhitelist(caller))) {
+      return #Err(#Unauthorized({ token_ids = [] }));
+    };
+
     let transferArgs : Types.TransferArgs = {
       created_at_time = burnArg.created_at_time;
       from = burnArg.from;
@@ -337,14 +545,11 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     await icrc7_transfer(burnArg);
   };
 
-  public shared ({ caller }) func mint(mintArgs : Types.MintArgs) : async Types.MintReceipt {
+  public shared ({ caller }) func mint(categories : [Text], mintArgs : Types.MintArgs) : async Types.MintReceipt {
+    if (not (await isUserInWhitelist(caller))) { return #Err(#Unauthorized) };
+
     let now = Nat64.fromIntWrap(Time.now());
     let acceptedTo : Types.Account = _acceptAccount(mintArgs.to);
-
-    //todo add a more complex roles management
-    if (Principal.notEqual(caller, owner.owner)) {
-      return #Err(#Unauthorized);
-    };
 
     //check on supply cap overflow
     if (supplyCap != null) {
@@ -359,35 +564,33 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
       return #Err(#InvalidRecipient);
     };
 
-    //cannot mint an existing token id
-    let alreadyExists = _exists(mintArgs.token_id);
-    if (alreadyExists) {
-      return #Err(#AlreadyExistTokenId);
-    };
-
     //create the new token
     let newToken : Types.TokenMetadata = {
-      tokenId = mintArgs.token_id;
+      tokenId = next_token_id;
       owner = acceptedTo;
+      categories = categories;
       metadata = mintArgs.metadata;
     };
 
     //update the token metadata
-    let tokenId : Types.TokenId = mintArgs.token_id;
+    let tokenId : Types.TokenId = newToken.tokenId;
     tokens := Trie.put(tokens, _keyFromTokenId tokenId, Nat.equal, newToken).0;
 
-    _addTokenToOwners(acceptedTo, mintArgs.token_id);
+    _addTokenToOwners(acceptedTo, tokenId);
 
     _incrementBalance(acceptedTo);
 
     _incrementTotalSupply(1);
 
-    let transaction : Types.Transaction = _addTransaction(#mint, now, ?[mintArgs.token_id], ?acceptedTo, null, null, null, null, null);
+    let transaction : Types.Transaction = _addTransaction(#mint, now, ?[tokenId], ?acceptedTo, null, null, null, null, null);
 
-    return #Ok(mintArgs.token_id);
+    // update token counter
+    next_token_id := next_token_id + 1;
+
+    return #Ok(tokenId);
   };
 
-  public func get_transactions(getTransactionsArgs : Types.GetTransactionsArgs) : async Types.GetTransactionsResult {
+  public shared query func get_transactions(getTransactionsArgs : Types.GetTransactionsArgs) : async Types.GetTransactionsResult {
     let result : Types.GetTransactionsResult = switch (getTransactionsArgs.account) {
       case null {
         let allTransactions : [Types.Transaction] = Trie.toArray<Types.TransactionId, Types.Transaction, Types.Transaction>(
@@ -546,6 +749,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
         let newToken : Types.TokenMetadata = {
           tokenId = _elem.tokenId;
           owner = Utils.nullishCoalescing<Types.Account>(newOwner, _elem.owner);
+          categories = _elem.categories;
           metadata = Utils.nullishCoalescing<[(Text, Types.Metadata)]>(newMetadata, _elem.metadata);
         };
 

@@ -1,4 +1,4 @@
-# aVa Doctoken (ICRC-7 version)
+# aVa Doctoken (draft ICRC-7 version)
 
 ## Overview
 
@@ -14,6 +14,23 @@ For standard methods and structures documentation, read the [specifications](htt
 All ICRC-7 methods available except icrc7_transfer
 
 Additional method: 
+
+#### addUser
+Add the member to the whitelist for update calls.
+The deployer is whitelisted by default.
+
+```candid "Methods" +=
+addUser : (principal) -> (bool);
+```
+
+#### removeUser
+Remove the principal from the whitelist.
+The last user will not be deleted.
+
+```candid "Methods" +=
+removeUser : (principal) -> (bool);
+```
+
 #### burn
 ```candid "Methods" +=
 burnArg : (TransferArgs) -> (variant { Ok: nat; Err: TransferError; });

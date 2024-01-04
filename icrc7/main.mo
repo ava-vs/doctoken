@@ -23,7 +23,7 @@ import Utils "Utils/utils";
 shared actor class Collection(collectionOwner : Types.Account, init : Types.CollectionInitArgs) = Self {
 
   private stable let hub_canister_id = "a3qjj-saaaa-aaaal-adgoa-cai";
-  private stable let doctoken_canister_id = "h5x3q-hyaaa-aaaal-adg6q-cai"; // TODO change to method
+  private stable let doctoken_canister_id = "h5x3q-hyaaa-aaaal-adg6q-cai"; // default
   private stable var owner : Types.Account = collectionOwner;
   let owner_principal = owner.owner;
 

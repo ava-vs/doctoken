@@ -22,7 +22,7 @@ import Utils "Utils/utils";
 
 shared actor class Collection(collectionOwner : Types.Account, init : Types.CollectionInitArgs) = Self {
 
-  private stable let hub_canister_id = "a3qjj-saaaa-aaaal-adgoa-cai";
+  private stable let hub_canister_id = "a3qjj-saaaa-aaaal-adgoa-cai"; //main aVa Event Hub
   private stable let doctoken_canister_id = "h5x3q-hyaaa-aaaal-adg6q-cai"; // default
   private stable var owner : Types.Account = collectionOwner;
   let owner_principal = owner.owner;
@@ -124,6 +124,11 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     true;
   };
 
+  public shared query func getCanisterId() : async Text {
+    doctoken_canister_id := Principal.toText(Principal.fromActor(Self));
+    doctoken_canister_id;
+  };
+
   // Form event arguments (metadata, reputation, etc.) from document's fields and issue Event
   public shared ({ caller }) func createEvent(
     eventType : Types.EventName,
@@ -136,6 +141,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     topic_value : Blob
 
   ) : async Result.Result<Types.Event, Types.EventError> {
+    ignore getCanisterId; // update canister id
     if (await isUserInWhitelist(caller)) {
       if ((await checkTag(category)) == false) {
         return #err(#TagNotFound { tag = "Tag " # category # " Not Found" });

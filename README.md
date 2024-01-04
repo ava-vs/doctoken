@@ -2,13 +2,21 @@
 
 ## Overview
 
-Coming soon...
+aVa Doctoken allows user to create an NFT document and issue reputation based on it.
 
 ## ICRC-7 Specification
 
 For standard methods and structures documentation, read the [specifications](https://github.com/dfinity/ICRC/blob/main/ICRCs/ICRC-7/ICRC-7.md).
 
 ### Deployment
+For local deployment use: 
+*If necessary, enter your information in the Name, Symbol, and Description fields in /commands/deploy-local.sh.*
+
+<code>
+	cd commands
+	sh ./deploy-local.sh
+</code>
+
 
 ### Available methods
 All ICRC-7 methods available except icrc7_transfer

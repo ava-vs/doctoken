@@ -86,14 +86,17 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     { hash = Principal.hash(p); key = p };
   };
 
+  // Whitelist
   private stable var whitelist : Set<Principal> = Trie.put(Trie.empty<Principal, ()>(), _keyFromPrincipal(owner_principal), Principal.equal, ()).0;
 
-  public shared ({ caller }) func addUser(userId : UserId) {
+  public shared ({ caller }) func addUser(userId : UserId) : async Bool {
     if (await isUserInWhitelist(caller)) whitelist := Trie.put(whitelist, _keyFromPrincipal userId, Principal.equal, ()).0;
+    await isUserInWhitelist(userId);
   };
 
-  public shared ({ caller }) func removeUser(userId : UserId) {
+  public shared ({ caller }) func removeUser(userId : UserId) : async Bool {
     if (await isUserInWhitelist(caller)) whitelist := Trie.remove(whitelist, _keyFromPrincipal userId, Principal.equal).0;
+    not (await isUserInWhitelist(userId));
   };
 
   public query func isUserInWhitelist(userId : Principal) : async Bool {

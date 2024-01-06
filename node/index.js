@@ -1,3 +1,4 @@
+// An example of using ICRC-7 NFT in JavaScript
 //libraries
 import { HttpAgent } from "@dfinity/agent";
 import { Principal } from '@dfinity/principal';

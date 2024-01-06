@@ -23,7 +23,9 @@ import Utils "Utils/utils";
 shared actor class Collection(collectionOwner : Types.Account, init : Types.CollectionInitArgs) = Self {
 
   private stable let hub_canister_id = "a3qjj-saaaa-aaaal-adgoa-cai"; //main aVa Event Hub
+
   private stable var doctoken_canister_id = "h5x3q-hyaaa-aaaal-adg6q-cai"; // default
+
   private stable var owner : Types.Account = collectionOwner;
   let owner_principal = owner.owner;
 
@@ -174,7 +176,9 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
 
   public shared query func getCanisterId() : async Text {
     doctoken_canister_id := Principal.toText(Principal.fromActor(Self));
+
     logger.append([prefix # " getCanisterId: refresh doctoken_canister_id to " # doctoken_canister_id]);
+
     doctoken_canister_id;
   };
 
@@ -190,7 +194,8 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     topic_value : Blob
 
   ) : async Result.Result<Types.Event, Types.EventError> {
-    ignore getCanisterId;
+
+    ignore getCanisterId; // update canister id
     logger.append([prefix # " createEvent: start whitelist checking for  " # Principal.toText(caller)]);
 
     if (await isUserInWhitelist(caller)) {

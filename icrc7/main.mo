@@ -23,7 +23,9 @@ import Utils "Utils/utils";
 shared actor class Collection(collectionOwner : Types.Account, init : Types.CollectionInitArgs) = Self {
 
   private stable let hub_canister_id = "a3qjj-saaaa-aaaal-adgoa-cai"; //main aVa Event Hub
-  private stable let doctoken_canister_id = "h5x3q-hyaaa-aaaal-adg6q-cai"; // default
+
+  private stable var doctoken_canister_id = "h5x3q-hyaaa-aaaal-adg6q-cai"; // default
+
   private stable var owner : Types.Account = collectionOwner;
   let owner_principal = owner.owner;
 
@@ -68,6 +70,47 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
   type Key<K> = Trie.Key<K>;
   type UserId = Principal;
   type Set<T> = Trie.Trie<T, ()>;
+
+  // Bagde Types
+  type Specialist = {
+    code : Text;
+    name : Text;
+  };
+
+  type Expert = {
+    code : Text;
+    name : Text;
+  };
+
+  type Reputation = {
+    total : Nat;
+    specialist : [Specialist];
+    expert : [Expert];
+    evolution : Text;
+  };
+
+  type BadgeReceipt = {
+    owner : Text;
+    userId : Nat;
+    reputation : Reputation;
+  };
+
+  // Sample Badge:
+
+  // let badgeReceipt : BadgeReceipt = {
+  //   owner = "Ivone Drake";
+  //   userId = 2300900923;
+  //   reputation = {
+  //     total = 695;
+  //     specialist = [
+  //       { code = "1.2.3.4"; name = "Motoko" },
+  //       { code = "7.2.2.45"; name = "Texas Holdem" },
+  //     ];
+  //     expert = [{ code = "1.2.2.1"; name = "Internet Computer Core" }];
+  //     evolution = "https://ava.capetown/user/";
+  //   };
+  // };
+
   // we have to provide `put`, `get` and `remove` with
   // a record of type `Key<K> = { hash: Hash.Hash; key: K }`;
   // thus we define the following function that takes a value of type `K`
@@ -95,14 +138,21 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
   };
 
   public shared ({ caller }) func removeUser(userId : UserId) : async Bool {
-    if (await isUserInWhitelist(caller)) whitelist := Trie.remove(whitelist, _keyFromPrincipal userId, Principal.equal).0;
+    if ((await isUserInWhitelist(caller)) and Trie.size(whitelist) > 1) whitelist := Trie.remove(whitelist, _keyFromPrincipal userId, Principal.equal).0;
     not (await isUserInWhitelist(userId));
   };
 
   public query func isUserInWhitelist(userId : Principal) : async Bool {
+    logger.append([prefix # " isUserInWhitelist:  check is user whitelisted: " # Principal.toText(userId)]);
     switch (Trie.get(whitelist, _keyFromPrincipal(userId), Principal.equal)) {
-      case (null) { false }; // User not found
-      case (_) { true }; // User found
+      case (null) {
+        logger.append([prefix # " isUserInWhitelist: Err - user is not whitelisted: " # Principal.toText(userId)]);
+        false;
+      };
+      case (_) {
+        logger.append([prefix # " isUserInWhitelist: Ok - user is whitelisted: " # Principal.toText(userId)]);
+        true;
+      };
     };
   };
 
@@ -126,6 +176,9 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
 
   public shared query func getCanisterId() : async Text {
     doctoken_canister_id := Principal.toText(Principal.fromActor(Self));
+
+    logger.append([prefix # " getCanisterId: refresh doctoken_canister_id to " # doctoken_canister_id]);
+
     doctoken_canister_id;
   };
 
@@ -141,7 +194,10 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     topic_value : Blob
 
   ) : async Result.Result<Types.Event, Types.EventError> {
+
     ignore getCanisterId; // update canister id
+    logger.append([prefix # " createEvent: start whitelist checking for  " # Principal.toText(caller)]);
+
     if (await isUserInWhitelist(caller)) {
       if ((await checkTag(category)) == false) {
         return #err(#TagNotFound { tag = "Tag " # category # " Not Found" });
@@ -165,8 +221,9 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
       };
 
       // Call issue function
+      logger.append([prefix # " createEvent: calling issue method "]);
       let issueResult = await issue(user, issueArgs);
-      let tokenId = switch (issueResult) {
+      let tokenId_balance = switch (issueResult) {
         case (#Err(err)) {
           switch (err) {
             case (#Unauthorized) return #err(#Unauthorized);
@@ -188,12 +245,12 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
         reputation_change = {
           user = user;
           reviewer = ?reviewer;
-          value = ?Nat8.toNat(issueArgs.reputation.value);
+          value = ?tokenId_balance.1;
           category = issueArgs.reputation.category;
-          source = (doctoken_canister_id, tokenId);
+          source = (doctoken_canister_id, tokenId_balance.0);
           timestamp : Nat = Option.get<Nat>(Nat.fromText(Int.toText(Time.now())), 0);
           comment = ?issueArgs.reputation.comment;
-          metadata : ?[(Text, Types.Metadata)] = Option.make([("Test", #Text(category))]);
+          metadata : ?[(Text, Types.Metadata)] = Option.make([("Balance", #Text(category))]);
         };
         sender_hash = null;
       });
@@ -214,8 +271,9 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     return found;
   };
 
-  func issue(caller : Principal, issueArgs : Types.IssueArgs) : async Types.MintReceipt {
+  func issue(caller : Principal, issueArgs : Types.IssueArgs) : async Types.IssueReceipt {
     // Mint a new doctoken from document
+    logger.append([prefix # " issue: calling mint method "]);
     let result = await mint([issueArgs.reputation.category], issueArgs.mint_args);
     let tokenId = switch (result) {
       case (#Ok(reciept)) { reciept };
@@ -234,7 +292,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
         source = (doctoken_canister_id, tokenId);
         timestamp : Nat = Option.get<Nat>(Nat.fromText(Int.toText(Time.now())), 0);
         comment = ?issueArgs.reputation.comment;
-        metadata : ?[(Text, Types.Metadata)] = Option.make([("Test", #Text(issueArgs.reputation.category))]);
+        metadata : ?[(Text, Types.Metadata)] = Option.make([("Category", #Text(issueArgs.reputation.category))]);
       };
       sender_hash = null; // TODO add sender canister hash
 
@@ -246,13 +304,17 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     // call aVa Event Hub with the event
 
     logger.append([prefix # " issue: call hub's emitEvent method"]);
-    // logger.append([prefix # "issue: event: eventType=" # Utils.eventNameToText(event.eventType)]);
-    // //  Utils.convertMetadataToTextPairs(Option.get<(Text, Types.Metadata)>(event.metadata, ("", #Text("")))).0]);
-    // let metadataToText = Utils.convertMetadataToTextPairs(Option.unwrap(event.metadata));
-    // logger.append([prefix # "issue: event: metadata=" # metadataToText[0].0 # ", " # metadataToText[0].1]);
     let emitInstantResult = await hub_instant_canister.emitEvent(event);
-    logger.append([prefix # " Method issue: event published Ok, number of subscribers: " # Nat.toText(emitInstantResult.size())]);
-    return result;
+    switch (emitInstantResult) {
+      case (#Ok(bal)) {
+        logger.append([prefix # " Method issue: event published Ok"]);
+        return #Ok((tokenId, bal[0].1));
+      };
+      case (#Err(err)) {
+        logger.append([prefix # " Method issue: Erro: event publish failed "]);
+        return #Err(#GenericError { error_code = 500; message = err });
+      };
+    };
   };
 
   public shared query func getDocumentById(tokenId : Types.TokenId) : async ?Types.Document {
@@ -552,7 +614,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
   };
 
   public shared ({ caller }) func mint(categories : [Text], mintArgs : Types.MintArgs) : async Types.MintReceipt {
-    if (not (await isUserInWhitelist(caller))) { return #Err(#Unauthorized) };
+    // if (not (await isUserInWhitelist(caller))) { return #Err(#Unauthorized) };
 
     let now = Nat64.fromIntWrap(Time.now());
     let acceptedTo : Types.Account = _acceptAccount(mintArgs.to);
@@ -691,7 +753,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     let actualBalance : Nat = Utils.nullishCoalescing<Nat>(balanceResult, 0);
 
     //update the balance
-    if (actualBalance > 0) {
+    if (actualBalance > 1) {
       balances := Trie.put(balances, _keyFromText textAccount, Text.equal, actualBalance - 1).0;
     };
   };

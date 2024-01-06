@@ -162,6 +162,9 @@ module {
 
   public type MintReceipt = Result<TokenId, MintError>;
 
+  // #Ok(TokenId, total user reputation)
+  public type IssueReceipt = Result<(TokenId, Nat), MintError>;
+
   public type TransferReceipt = Result<TransferId, TransferError>;
 
   public type ApprovalReceipt = Result<ApprovalId, ApprovalError>;
@@ -243,7 +246,7 @@ module {
 
   public type InstantReputationUpdateEvent = actor {
     getCategories : () -> async [(Text, Text)];
-    emitEvent : (Event) -> async [Subscriber];
+    emitEvent : (Event) -> async Result<[(Nat, Nat)], Text>;
   };
   public type AwaitingReputationUpdateEvent = actor {
     updateReputation : (Event) -> async Result.Result<[(Text, Text)], Text>;

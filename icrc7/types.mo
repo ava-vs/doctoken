@@ -246,7 +246,7 @@ module {
 
   public type InstantReputationUpdateEvent = actor {
     getCategories : () -> async [(Text, Text)];
-    emitEvent : (Event) -> async Result<[(Text, Text)], Text>;
+    emitEvent : (Event) -> async Result<[(Nat, Nat)], Text>;
   };
   public type AwaitingReputationUpdateEvent = actor {
     updateReputation : (Event) -> async Result.Result<[(Text, Text)], Text>;

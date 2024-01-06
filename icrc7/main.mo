@@ -287,7 +287,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
         source = (doctoken_canister_id, tokenId);
         timestamp : Nat = Option.get<Nat>(Nat.fromText(Int.toText(Time.now())), 0);
         comment = ?issueArgs.reputation.comment;
-        metadata : ?[(Text, Types.Metadata)] = Option.make([("Test", #Text(issueArgs.reputation.category))]);
+        metadata : ?[(Text, Types.Metadata)] = Option.make([("Category", #Text(issueArgs.reputation.category))]);
       };
       sender_hash = null; // TODO add sender canister hash
 
@@ -303,7 +303,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     switch (emitInstantResult) {
       case (#Ok(bal)) {
         logger.append([prefix # " Method issue: event published Ok"]);
-        return #Ok((tokenId, Option.get(Nat.fromText(bal[0].1), 0)));
+        return #Ok((tokenId, bal[0].1));
       };
       case (#Err(err)) {
         logger.append([prefix # " Method issue: Erro: event publish failed "]);
@@ -748,7 +748,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     let actualBalance : Nat = Utils.nullishCoalescing<Nat>(balanceResult, 0);
 
     //update the balance
-    if (actualBalance > 0) {
+    if (actualBalance > 1) {
       balances := Trie.put(balances, _keyFromText textAccount, Text.equal, actualBalance - 1).0;
     };
   };

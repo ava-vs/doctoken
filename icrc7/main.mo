@@ -2,6 +2,7 @@ import Array "mo:base/Array";
 import Blob "mo:base/Blob";
 import Bool "mo:base/Bool";
 import Buffer "mo:base/Buffer";
+import Cycles "mo:base/ExperimentalCycles";
 import Hash "mo:base/Hash";
 import HashMap "mo:base/HashMap";
 import Int "mo:base/Int";
@@ -23,11 +24,11 @@ import Utils "Utils/utils";
 shared actor class Collection(collectionOwner : Types.Account, init : Types.CollectionInitArgs) = Self {
 
   private stable let hub_canister_id = "a3qjj-saaaa-aaaal-adgoa-cai"; //main aVa Event Hub
-
   private stable var doctoken_canister_id = "h5x3q-hyaaa-aaaal-adg6q-cai"; // default
-
   private stable var owner : Types.Account = collectionOwner;
   let owner_principal = owner.owner;
+
+  let default_event_fee = 1_000_000_000;
 
   private stable var name : Text = init.name;
   private stable var symbol : Text = init.symbol;
@@ -176,9 +177,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
 
   public shared query func getCanisterId() : async Text {
     doctoken_canister_id := Principal.toText(Principal.fromActor(Self));
-
     logger.append([prefix # " getCanisterId: refresh doctoken_canister_id to " # doctoken_canister_id]);
-
     doctoken_canister_id;
   };
 
@@ -194,8 +193,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     topic_value : Blob
 
   ) : async Result.Result<Types.Event, Types.EventError> {
-
-    ignore getCanisterId; // update canister id
+    ignore getCanisterId;
     logger.append([prefix # " createEvent: start whitelist checking for  " # Principal.toText(caller)]);
 
     if (await isUserInWhitelist(caller)) {
@@ -304,6 +302,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     // call aVa Event Hub with the event
 
     logger.append([prefix # " issue: call hub's emitEvent method"]);
+    Cycles.add(default_event_fee);
     let emitInstantResult = await hub_instant_canister.emitEvent(event);
     switch (emitInstantResult) {
       case (#Ok(bal)) {

@@ -28,7 +28,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
   private stable var owner : Types.Account = collectionOwner;
   let owner_principal = owner.owner;
 
-  let default_event_fee = 1_000_000_000;
+  let default_event_fee = 1_000_000_000_000;
 
   private stable var name : Text = init.name;
   private stable var symbol : Text = init.symbol;

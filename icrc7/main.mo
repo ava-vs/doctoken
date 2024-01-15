@@ -169,17 +169,24 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
   let logger = Logger.Logger<Text>(state);
   let prefix = Utils.timestampToDate();
 
-  public func viewLogs(end : Nat) : async [Text] {
-    let view = logger.view(0, end);
-    let result = Buffer.Buffer<Text>(1);
-    for (message in view.messages.vals()) {
-      result.add(message);
+  public shared ({ caller }) func viewLogs(end : Nat) : async [Text] {
+    if (await isUserInWhitelist(caller)) {
+      let view = logger.view(0, end);
+      let result = Buffer.Buffer<Text>(1);
+      for (message in view.messages.vals()) {
+        result.add(message);
+      };
+      return Buffer.toArray(result);
     };
-    Buffer.toArray(result);
+    return ["Access Denied"];
   };
-  public func clearAllLogs() : async Bool {
-    logger.clear();
-    true;
+
+  public shared ({ caller }) func clearAllLogs() : async Bool {
+    if (await isUserInWhitelist(caller)) {
+      logger.clear();
+      return true;
+    };
+    false;
   };
 
   public shared query func getCanisterId() : async Text {

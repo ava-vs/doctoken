@@ -2,19 +2,19 @@
 
 ## Overview
 
-aVa Doctoken allows user to create an NFT document and issue reputation based on it. Default cost of NFT with reputation set to 1T cycles.
+aVa Doctoken allows user to create an NFT document and issue reputation based on it. Default cost of NFT with reputation set to 750B (~$1) cycles.
 
 ## ICRC-7 Specification
 
 For standard methods and structures documentation, read the [specifications](https://github.com/dfinity/ICRC/blob/main/ICRCs/ICRC-7/ICRC-7.md).
 
 ### Deployment
-For local deployment use: 
-*If necessary, enter your information in the Name, Symbol, and Description fields in /commands/deploy-local.sh.*
+For deployment to mainnet of Internet Computer use: 
+*If necessary, enter your information in the Name, Symbol, and Description fields in /commands/deploy-ic.sh.*
 
 <code>
 	cd commands
-	sh ./deploy-local.sh
+	sh ./deploy-ic.sh
 </code>
 
 
@@ -23,7 +23,7 @@ All ICRC-7 methods available except icrc7_transfer
 
 Additional method: 
 
-#### addUser
+#### addUser (to whitelist)
 Add the member to the whitelist for update calls.
 The deployer is whitelisted by default.
 
@@ -31,7 +31,7 @@ The deployer is whitelisted by default.
 addUser : (principal) -> (bool);
 ```
 
-#### removeUser
+#### removeUser (from whitelist)
 Remove the principal from the whitelist.
 The last user will not be deleted.
 

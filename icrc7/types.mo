@@ -242,8 +242,6 @@ module {
     #GenericError : { error_code : Nat; message : Text };
   };
 
-  public type Branch = Nat8;
-
   public type InstantReputationUpdateEvent = actor {
     getCategories : () -> async [(Text, Text)];
     emitEvent : (Event) -> async Result<[(Nat, Nat)], Text>;

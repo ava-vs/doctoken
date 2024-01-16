@@ -198,58 +198,102 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
   let default_filter_topic_name = "AwardReputation";
   let default_topic_value = Text.encodeUtf8("1"); // Blob (vec {49})
 
-  public shared ({ caller }) func createCertificate(user : Text, category : Text, course : Text) : async Result.Result<Types.Event, Types.EventError> {
+  public shared ({ caller }) func createCertificate({
+    user_principal : Text;
+    category : Text;
+    course : Text;
+  }) : async Result.Result<Types.Event, Types.EventError> {
     if (await isUserInWhitelist(caller)) {
       let eventType : Types.EventName = #InstantReputationUpdateEvent;
       let topic_name = default_filter_topic_name;
       let topic_value : Blob = default_topic_value;
-      if (Text.equal(user, "2vxsx-fae")) return #err(#Unauthorized);
-      return await createEvent(
+      if (Text.equal(user_principal, "2vxsx-fae")) {
+        logger.append([prefix # " createCertificate: Forbidding user " # user_principal]);
+        return #err(#InvalidRecipient);
+      };
+      logger.append([prefix # " createCertificate: calling createEvent method with " # user_principal # ", category: " # category # ", course: " # course # ", caller:" # Principal.toText(caller)]);
+
+      let resultEvent : Result.Result<Types.Event, Types.EventError> = await createEvent(
         eventType,
-        Principal.fromText(user),
-        caller,
+        Principal.fromText(user_principal),
+        owner_principal,
         10,
         course,
         category,
         topic_name,
         topic_value,
       );
-    };
-    #err(#Unauthorized);
-  };
-
-  public shared ({ caller }) func createEventBadge({
-    username : Text;
-    user : ?Principal;
-    eventname : Text;
-    category : Text;
-    reputation_value : Nat8;
-
-  }) : async Result.Result<Types.Event, Types.EventError> {
-    if (await isUserInWhitelist(caller)) {
-      let eventType : Types.EventName = #InstantReputationUpdateEvent;
-      let topic_name = default_filter_topic_name;
-      let topic_value : Blob = default_topic_value;
-      let reward_reciever : Principal = switch (user) {
-        case (null) caller;
-        case (?u) u;
+      switch (resultEvent) {
+        case (#ok event) {
+          logger.append([prefix # " createCertificate: Ok"]);
+          return #ok(event);
+        };
+        case (#err error) {
+          logger.append([prefix # " createCertificate: Error: "]);
+          switch (error) {
+            case (#Unauthorized) {
+              logger.append([prefix # " createCertificate: Forbidding user " # user_principal]);
+              return #err(#Unauthorized);
+            };
+            case (#SupplyCapOverflow) {
+              logger.append([prefix # " createCertificate: Supply cap overflow for " # user_principal]);
+              return #err(#SupplyCapOverflow);
+            };
+            case (#InvalidRecipient) {
+              logger.append([prefix # " createCertificate: InvalidRecipient " # user_principal]);
+              return #err(#InvalidRecipient);
+            };
+            case (#AlreadyExistTokenId) {
+              logger.append([prefix # " createCertificate: AlreadyExistTokenId "]);
+              return #err(#AlreadyExistTokenId);
+            };
+            case (#GenericError(_)) {
+              logger.append([prefix # " createCertificate: GenericError "]);
+              return #err(#GenericError { error_code = 500; message = "Generic error" });
+            };
+            case (_) {
+              logger.append([prefix # " createCertificate: Error for " # user_principal]);
+              return #err(#GenericError { error_code = 500; message = "Generic error" });
+            };
+          };
+        };
       };
-      return await createEvent(
-        eventType,
-        reward_reciever,
-        caller,
-        10,
-        eventname # " : " # username,
-        category,
-        topic_name,
-        topic_value,
-      );
     };
-    #err(#Unauthorized);
+    #err(#GenericError { error_code = 500; message = "Access Denied" });
   };
+
+  // public shared ({ caller }) func createEventBadge({
+  //   username : Text;
+  //   user : ?Principal;
+  //   eventname : Text;
+  //   category : Text;
+  //   reputation_value : Nat8;
+
+  // }) : async Result.Result<Types.Event, Types.EventError> {
+  //   if (await isUserInWhitelist(caller)) {
+  //     let eventType : Types.EventName = #InstantReputationUpdateEvent;
+  //     let topic_name = default_filter_topic_name;
+  //     let topic_value : Blob = default_topic_value;
+  //     let reward_reciever : Principal = switch (user) {
+  //       case (null) caller;
+  //       case (?u) u;
+  //     };
+  //     return await createEvent(
+  //       eventType,
+  //       reward_reciever,
+  //       caller,
+  //       10,
+  //       eventname # " : " # username,
+  //       category,
+  //       topic_name,
+  //       topic_value,
+  //     );
+  //   };
+  //   #err(#Unauthorized);
+  // };
 
   // Form event arguments (metadata, reputation, etc.) from document's fields and issue Event
-  public shared ({ caller }) func createEvent(
+  private shared ({ caller }) func createEvent(
     eventType : Types.EventName,
     user : Principal,
     reviewer : Principal,
@@ -261,63 +305,65 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
 
   ) : async Result.Result<Types.Event, Types.EventError> {
     ignore getCanisterId;
-
-    if (await isUserInWhitelist(caller)) {
-      if ((await checkTag(category)) == false) {
-        return #err(#TagNotFound { tag = "Tag " # category # " Not Found" });
-      };
-      let token_metadata = [("Test_Metadata_Tag", #Text(category))];
-
-      let issueArgs : Types.IssueArgs = {
-        mint_args = {
-          to = { owner = user; subaccount = null };
-          token_id = next_token_id;
-          metadata = token_metadata;
-        };
-        topics = [{ name = topic_name; value = topic_value }];
-        reputation = {
-          user = user;
-          reviewer = reviewer;
-          value = value;
-          comment = comment;
-          category = category;
-        };
-      };
-
-      // Call issue function
-      let issueResult = await issue(user, issueArgs);
-      let tokenId_balance = switch (issueResult) {
-        case (#Err(err)) {
-          switch (err) {
-            case (#Unauthorized) return #err(#Unauthorized);
-            case (#SupplyCapOverflow) return #err(#SupplyCapOverflow);
-            case (#AlreadyExistTokenId) return #err(#AlreadyExistTokenId);
-            case (#GenericError { error_code; message }) {
-              return #err(#GenericError { error_code = error_code; message = message });
-            };
-            case (#InvalidRecipient) return #err(#InvalidRecipient);
-          };
-        };
-        case (#Ok(id)) { id };
-      };
-
-      return #ok({
-        eventType = eventType;
-        topics = issueArgs.topics;
-        details = null;
-        reputation_change = {
-          user = user;
-          reviewer = ?reviewer;
-          value = ?tokenId_balance.1;
-          category = issueArgs.reputation.category;
-          source = (doctoken_canister_id, tokenId_balance.0);
-          timestamp : Nat = Option.get<Nat>(Nat.fromText(Int.toText(Time.now())), 0);
-          comment = ?issueArgs.reputation.comment;
-          metadata : ?[(Text, Types.Metadata)] = Option.make([("Balance", #Text(category))]);
-        };
-        sender_hash = null;
-      });
+    logger.append([prefix # " createEvent started"]);
+    // if (await isUserInWhitelist(caller)) {
+    if ((await checkTag(category)) == false) {
+      return #err(#TagNotFound { tag = "Tag " # category # " Not Found" });
     };
+    let token_metadata = [("Basis", #Text(comment))];
+
+    let issueArgs : Types.IssueArgs = {
+      mint_args = {
+        to = { owner = user; subaccount = null };
+        token_id = next_token_id;
+        metadata = token_metadata;
+      };
+      topics = [{ name = topic_name; value = topic_value }];
+      reputation = {
+        user = user;
+        reviewer = reviewer;
+        value = value;
+        comment = comment;
+        category = category;
+      };
+    };
+
+    // Call issue function
+    logger.append([prefix # " createEvent: calling issue method"]);
+
+    let issueResult = await issue(user, issueArgs);
+    let tokenId_balance = switch (issueResult) {
+      case (#Err(err)) {
+        switch (err) {
+          case (#Unauthorized) return #err(#Unauthorized);
+          case (#SupplyCapOverflow) return #err(#SupplyCapOverflow);
+          case (#AlreadyExistTokenId) return #err(#AlreadyExistTokenId);
+          case (#GenericError { error_code; message }) {
+            return #err(#GenericError { error_code = error_code; message = message });
+          };
+          case (#InvalidRecipient) return #err(#InvalidRecipient);
+        };
+      };
+      case (#Ok(id, bal)) { (id, bal) };
+    };
+
+    return #ok({
+      eventType = eventType;
+      topics = issueArgs.topics;
+      details = null;
+      reputation_change = {
+        user = user;
+        reviewer = ?reviewer;
+        value = ?tokenId_balance.1;
+        category = issueArgs.reputation.category;
+        source = (doctoken_canister_id, tokenId_balance.0);
+        timestamp : Nat = Option.get<Nat>(Nat.fromText(Int.toText(Time.now())), 0);
+        comment = ?issueArgs.reputation.comment;
+        metadata : ?[(Text, Types.Metadata)] = Option.make(issueArgs.mint_args.metadata);
+      };
+      sender_hash = null;
+    });
+    // };
     return #err(#Unauthorized);
   };
 
@@ -336,6 +382,8 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
 
   func issue(caller : Principal, issueArgs : Types.IssueArgs) : async Types.IssueReceipt {
     // Mint a new doctoken from document
+    logger.append([prefix # " issue: call mint method"]);
+
     let result = await mint([issueArgs.reputation.category], issueArgs.mint_args);
     let tokenId = switch (result) {
       case (#Ok(reciept)) { reciept };
@@ -354,7 +402,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
         source = (doctoken_canister_id, tokenId);
         timestamp : Nat = Option.get<Nat>(Nat.fromText(Int.toText(Time.now())), 0);
         comment = ?issueArgs.reputation.comment;
-        metadata : ?[(Text, Types.Metadata)] = Option.make([("Category", #Text(issueArgs.reputation.category))]);
+        metadata : ?[(Text, Types.Metadata)] = Option.make(issueArgs.mint_args.metadata);
       };
       sender_hash = null; // TODO add sender canister hash
 
@@ -674,51 +722,50 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     return #Err(#Unauthorized({ token_ids = [] }));
   };
 
-  public shared ({ caller }) func mint(categories : [Text], mintArgs : Types.MintArgs) : async Types.MintReceipt {
-    if (await isUserInWhitelist(caller)) {
+  func mint(categories : [Text], mintArgs : Types.MintArgs) : async Types.MintReceipt {
 
-      let now = Nat64.fromIntWrap(Time.now());
-      let acceptedTo : Types.Account = _acceptAccount(mintArgs.to);
+    let now = Nat64.fromIntWrap(Time.now());
+    let acceptedTo : Types.Account = _acceptAccount(mintArgs.to);
 
-      //check on supply cap overflow
-      if (supplyCap != null) {
-        let _supplyCap : Nat = Utils.nullishCoalescing<Nat>(supplyCap, 0);
-        if (totalSupply + 1 > _supplyCap) {
-          return #Err(#SupplyCapOverflow);
-        };
+    //check on supply cap overflow
+    if (supplyCap != null) {
+      let _supplyCap : Nat = Utils.nullishCoalescing<Nat>(supplyCap, 0);
+      if (totalSupply + 1 > _supplyCap) {
+        return #Err(#SupplyCapOverflow);
       };
-
-      //cannot mint to zero principal
-      if (Principal.equal(acceptedTo.owner, NULL_PRINCIPAL)) {
-        return #Err(#InvalidRecipient);
-      };
-
-      //create the new token
-      let newToken : Types.TokenMetadata = {
-        tokenId = next_token_id;
-        owner = acceptedTo;
-        categories = categories;
-        metadata = mintArgs.metadata;
-      };
-
-      //update the token metadata
-      let tokenId : Types.TokenId = newToken.tokenId;
-      tokens := Trie.put(tokens, _keyFromTokenId tokenId, Nat.equal, newToken).0;
-
-      _addTokenToOwners(acceptedTo, tokenId);
-
-      _incrementBalance(acceptedTo);
-
-      _incrementTotalSupply(1);
-
-      let transaction : Types.Transaction = _addTransaction(#mint, now, ?[tokenId], ?acceptedTo, null, null, null, null, null);
-
-      // update token counter
-      next_token_id := next_token_id + 1;
-
-      return #Ok(tokenId);
     };
-    return #Err(#Unauthorized);
+
+    //cannot mint to zero principal
+    if (Principal.equal(acceptedTo.owner, NULL_PRINCIPAL)) {
+      return #Err(#InvalidRecipient);
+    };
+
+    //create the new token
+    let newToken : Types.TokenMetadata = {
+      tokenId = next_token_id;
+      owner = acceptedTo;
+      categories = categories;
+      metadata = mintArgs.metadata;
+    };
+
+    //update the token metadata
+
+    let tokenId : Types.TokenId = newToken.tokenId;
+    tokens := Trie.put(tokens, _keyFromTokenId tokenId, Nat.equal, newToken).0;
+
+    _addTokenToOwners(acceptedTo, tokenId);
+
+    _incrementBalance(acceptedTo);
+
+    _incrementTotalSupply(1);
+
+    let transaction : Types.Transaction = _addTransaction(#mint, now, ?[tokenId], ?acceptedTo, null, null, null, null, null);
+    logger.append([prefix # " mint: token created with tokenId: " # Nat.toText(tokenId)]);
+
+    // update token counter
+    next_token_id := next_token_id + 1;
+
+    return #Ok(tokenId);
   };
 
   public shared query func get_transactions(getTransactionsArgs : Types.GetTransactionsArgs) : async Types.GetTransactionsResult {

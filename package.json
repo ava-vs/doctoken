@@ -1,26 +1,28 @@
 {
-  "name": "icrc7_motoko",
+  "name": "ava_doctoken",
   "version": "1.0.0",
-  "description": "ICRC-7 Standard Implementation in Motoko",
+  "description": "aVa Doctoken ICRC-7 Standard Implementation in Motoko",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/noku-team/icrc7_motoko.git"
+    "url": "git+https://github.com/ava-vs/doctoken.git"
   },
   "keywords": [
     "icrc7",
     "motoko",
-    "nft"
+    "nft",
+    "ava",
+    "doctoken"
   ],
-  "author": "Noku AG",
-  "license": "MIT",
+  "author": "aVa",
+  "license": "AGPL-3.0",
   "bugs": {
-    "url": "https://github.com/noku-team/icrc7_motoko/issues"
+    "url": "https://github.com/ava-vs/doctoken/issues"
   },
-  "homepage": "https://github.com/noku-team/icrc7_motoko#readme",
+  "homepage": "https://github.com/ava-vs/doctoken#readme",
   "devDependencies": {
     "@dfinity/agent": "^0.15.6",
     "@dfinity/assets": "^0.15.6",

@@ -5,8 +5,7 @@ import { Secp256k1KeyIdentity } from "@dfinity/identity-secp256k1";
 import { Buffer } from "buffer";
 import fetch from "isomorphic-fetch";
 import axios from "axios";
-//canister specific (ICRC-7 SPECIFIC)
-import { createActor } from "../declarations/icrc7/index.js";
+import { createActor } from "../declarations/doctoken/index.js";
 
 //just for the example
 import { createRequire } from "node:module";
@@ -53,7 +52,7 @@ async function main() {
 	// Require syntax is needed for JSON file imports
 	const requireUrl = createRequire(import.meta.url);
 	const localCanisterIds = requireUrl("../../.dfx/local/canister_ids.json");
-	const effectiveCanisterId = localCanisterIds.icrc7.local;
+	const effectiveCanisterId = localCanisterIds.doctoken.local;
 
 	const aliceAgent = new HttpAgent({
 		identity: Secp256k1KeyIdentity.fromSeedPhrase(aliceSeed),

@@ -9,14 +9,14 @@ aVa Doctoken allows user to create an NFT document and issue reputation based on
 For standard methods and structures documentation, read the [specifications](https://github.com/dfinity/ICRC/blob/main/ICRCs/ICRC-7/ICRC-7.md).
 
 ### Deployment
-For deployment to mainnet of Internet Computer use: 
 *If necessary, enter your information in the Name, Symbol, and Description fields in /commands/deploy-ic.sh.*
+
+For deployment to mainnet of Internet Computer use: 
 
 <code>
 	cd commands
 	sh ./deploy-ic.sh
 </code>
-
 
 ### Available methods
 All ICRC-7 methods available except icrc7_transfer

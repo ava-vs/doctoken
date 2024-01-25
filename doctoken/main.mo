@@ -98,6 +98,19 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     reputation : Reputation;
   };
 
+  public type Certficate = {
+    owner : Text;
+    name : Text;
+    publisher : Text;
+    tokenId : Nat;
+    basis : Text;
+    date : Text;
+    reputation : {
+      category : Text;
+      value : Nat;
+    };
+  };
+
   // Sample Badge:
 
   // let badgeReceipt : BadgeReceipt = {
@@ -200,6 +213,8 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
   let default_filter_topic_name = "AwardReputation";
   let default_topic_value = Text.encodeUtf8("1"); // Blob (vec {49})
 
+  private stable var certificateTrie : Trie<Principal, [Certficate]> = Trie.empty();
+
   public shared ({ caller }) func createCertificate({
     document_type : Text;
     user_principal : Text;
@@ -210,7 +225,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
       let eventType : Types.EventName = #InstantReputationUpdateEvent;
       let topic_name = default_filter_topic_name;
       let topic_value : Blob = default_topic_value;
-      
+
       if (Text.equal(user_principal, "2vxsx-fae")) {
         logger.append([prefix # " createCertificate: Forbidding user " # user_principal]);
         return #err(#InvalidRecipient);
@@ -231,6 +246,19 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
       switch (resultEvent) {
         case (#ok event) {
           logger.append([prefix # " createCertificate: Ok"]);
+          let cert : [Certficate] = [{
+            owner = Principal.toText(event.reputation_change.user);
+            name = user_principal;
+            publisher = Principal.toText(Option.get<Principal>(event.reputation_change.reviewer, Principal.fromText("aaaaa-aa")));
+            tokenId = event.reputation_change.source.1;
+            basis = course;
+            date = Nat.toText(event.reputation_change.timestamp);
+            reputation = {
+              category = category;
+              value = Option.get<Nat>(event.reputation_change.value, 0);
+            };
+          }];
+          certificateTrie := Trie.put(certificateTrie, _keyFromPrincipal(event.reputation_change.user), Principal.equal, cert).0;
           return #ok(event);
         };
         case (#err error) {
@@ -400,8 +428,8 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
       topics = issueArgs.topics;
       details = null;
       reputation_change = {
-        user = caller;
-        reviewer = ?caller;
+        user = issueArgs.reputation.user;
+        reviewer = ?issueArgs.reputation.reviewer;
         value = ?Nat8.toNat(issueArgs.reputation.value);
         category = issueArgs.reputation.category;
         source = (doctoken_canister_id, tokenId_timestamp.0);
@@ -532,6 +560,13 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
       case (?_elem) {
         return #Ok(_elem);
       };
+    };
+  };
+
+  public func userCertificates(user : Principal) : async [Certficate] {
+    switch (Trie.get<Principal, [Certficate]>(certificateTrie, _keyFromPrincipal user, Principal.equal)) {
+      case (?certificates) return certificates;
+      case null return [];
     };
   };
 

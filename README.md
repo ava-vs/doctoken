@@ -2,7 +2,7 @@
 
 ## Overview
 
-aVa Doctoken allows user to create an NFT document and issue reputation based on it. Default cost of NFT with reputation set to 750B (~$1) cycles.
+aVa Doctoken allows user to create an NFT document and issue [reputation](https://github.com/ava-vs/reputation/wiki) based on it. Default cost of NFT with reputation set to 750B (~$1) cycles.
 
 ## ICRC-7 Specification
 

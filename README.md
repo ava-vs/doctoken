@@ -41,7 +41,7 @@ removeUser : (principal) -> (bool);
 
 #### burn
 ```candid "Methods" +=
-burnArg : (TransferArgs) -> (variant { Ok: nat; Err: TransferError; });
+burn : (TransferArgs) -> (variant { Ok: nat; Err: TransferError; });
 ```
 
 ```candid "Type definitions" +=

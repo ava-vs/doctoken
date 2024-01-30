@@ -1,87 +1,73 @@
-# ICRC-7
+# aVa Doctoken (draft ICRC-7 version)
 
-## Abstract
+## Overview
 
-This is an ICRC-7 standard implementation in Motoko. Although the ICRC-7 standard is currently in its draft phase, this implementation strives to provide developers with a practical, readily deployable solution for introducing Non-Fungible Tokens (NFTs) on the Internet Computer Protocol (ICP) within real-world applications. Our focus is on enabling seamless integration and efficient canister management to facilitate the smooth adoption of NFTs in the ICP ecosystem. We understand the importance of accessible solutions during this transformative phase, and we aim to provide a reliable starting point for those eager to explore the NFT space on ICP.
+aVa Doctoken allows user to create an NFT document and issue [reputation](https://github.com/ava-vs/reputation/wiki) based on it. Default cost of NFT with reputation set to 750B (~$1) cycles.
 
-### Non-Standard Methods
-
-To support the implementation's readiness, we've introduced some non-standard methods that enhance canister management and streamline the integration process. The "mint" method is one such addition, facilitating the creation of new NFTs with metadata, attributes, and ownership credentials. This allows for greater customization while adhering to the core principles of the ICRC-7 standard. Another non-standard method we've included is "get_transactions", which empowers developers to efficiently retrieve transaction data for NFTs. This functionality promotes seamless integration with existing applications and paves the way for building innovative NFT marketplaces, provenance trackers, and other services that rely on transaction history.
-
-## Specification
+## ICRC-7 Specification
 
 For standard methods and structures documentation, read the [specifications](https://github.com/dfinity/ICRC/blob/main/ICRCs/ICRC-7/ICRC-7.md).
 
-### mint
+### Deployment
+For deployment to mainnet of Internet Computer use: 
+*If necessary, enter your information in the Name, Symbol, and Description fields in /commands/deploy-ic.sh.*
 
-Mint one token to the `to` account. Only the canister owner Account can mint a new token.
-If the caller is not the owner, the ledger returns `variant { Unauthorized }` error.
-The ledger can implement a supply cap. If the supply cap is set and the number of minted tokens has reach the supply cap, the ledger returns `variant { SupplyCapOverflow }`.
-If the `to` account is equal to the `NULL_ACCOUNT`, the ledger returns `variant { InvalidRecipient }`.
-If the caller is trying to mint an existing token id, the ledger returns `variant { AlreadyExistTokenId }`.
+<code>
+	cd commands
+	sh ./deploy-ic.sh
+</code>
+
+
+### Available methods
+All ICRC-7 methods available except icrc7_transfer
+
+Additional method: 
+
+#### addUser (to whitelist)
+Add the member to the whitelist for update calls.
+The deployer is whitelisted by default.
 
 ```candid "Methods" +=
-mint : (MintArgs) -> (variant { Ok: nat; Err: MintError; });
+addUser : (principal) -> (bool);
+```
+
+#### removeUser (from whitelist)
+Remove the principal from the whitelist.
+The last user will not be deleted.
+
+```candid "Methods" +=
+removeUser : (principal) -> (bool);
+```
+
+#### burn
+```candid "Methods" +=
+burn : (TransferArgs) -> (variant { Ok: nat; Err: TransferError; });
 ```
 
 ```candid "Type definitions" +=
-type MintArgs = record {
+type Subaccount = blob;
+
+type Account = record {
+		owner: principal; 
+		subaccount: opt blob;
+  };
+  
+type TransferArgs = record {
+    spender_subaccount: opt Subaccount; // the subaccount of the caller (used to identify the spender)
+    from: opt Account;     /* if supplied and is not caller then is permit transfer, if not supplied defaults to subaccount 0 of the caller principal */
     to: Account;
-    token_id: nat;
-    metadata: vec record { text; Metadata };
-};
+    token_ids: vec {nat};   
+    memo: ?Blob;
+    created_at_time: opt nat64;
+    is_atomic: opt bool;
+  };
 
-type MintError = variant {
-    Unauthorized;
-    SupplyCapOverflow;
-    InvalidRecipient;
-    AlreadyExistTokenId;
-    GenericError: record { error_code : nat; message : text };
-};
-```
-
-### get_transactions
-
-Returns the transaction history of the ledger or  the account given as an argument. This query is paginated, the results are provided in chronological order, from the most recent to the oldest.
-
-```candid "Methods" +=
-get_transactions : (GeTransactionsArgs) -> (GetTransactionsResult) query;
-```
-
-```candid "Type definitions" +=
-type GeTransactionsArgs = record {
-    limit: nat;
-    offset: nat;
-    account: opt Account;
-};
-
-type GetTransactionsResult = record {
-    total: nat;
-    transactions: vec Transaction;
-};
-
-type Transaction = record {
-    kind: Text;// "icrc7_transfer" | "mint" | "icrc7_approve" ...
-    timestamp: nat64;
-    mint: opt record {
-      to: Account;
-      token_ids: vec nat;
-    };
-    icrc7_transfer: opt record{
-      from: Account;
-      to: Account;
-      spender: opt Account;
-      token_ids: vec nat;
-      memo: opt blob;
-      created_at_time: opt nat64;
-    };
-    icrc7_approve: opt record {
-      from: Account;
-      spender: Account;
-      token_ids: opt vec nat;
-      expires_at: opt nat64;
-      memo: opt blob;
-      created_at_time: opt nat64;
-    };
+type TransferError = variant {
+    Unauthorized: record { token_ids: vec (nat) };
+    TooOld;
+    CreatedInFuture: record { ledger_time: nat };
+    Duplicate: record { duplicate_of: nat };
+    TemporarilyUnavailable: {};
+    GenericError: record { error_code: nat; message: text };
   };
 ```

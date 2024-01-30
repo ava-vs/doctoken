@@ -1,7 +1,7 @@
 {
     "canisters": {
       "doctoken": {     
-        "main": "icrc7/main.mo",
+        "main": "doctoken/main.mo",
         "type": "motoko"
       }
     },

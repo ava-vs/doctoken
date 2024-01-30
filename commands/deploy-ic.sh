@@ -4,14 +4,14 @@ dfx canister create --all --ic && dfx build --ic && dfx deploy --ic --argument "
     subaccount = opt blob \"00000000000000000000000000000000\";
   },
   record {
-    name = \"Test Doctoken\";
-    symbol = \"TESTDT\";
+    name = \"Your Doctoken\";
+    symbol = \"YOURDCT\";
     royalties = opt 0;
     royaltyRecipient = opt record {
       owner = principal\"2vxsx-fae\";
       subaccount = null;
     };
-    description = opt \"Sample doctoken for testing\";
+    description = opt \"Sample doctoken\";
     image = null;
     supplyCap = opt 10000;
   }

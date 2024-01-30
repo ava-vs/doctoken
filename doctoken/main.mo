@@ -28,7 +28,9 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
   private stable var owner : Types.Account = collectionOwner;
   let owner_principal = owner.owner;
 
-  let default_event_fee = 1_000_000_000_000;
+  let default_event_fee = 750_000_000_000;
+
+  let default_reputation_value : Nat8 = 10;
 
   private stable var name : Text = init.name;
   private stable var symbol : Text = init.symbol;
@@ -96,6 +98,19 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     reputation : Reputation;
   };
 
+  public type Certficate = {
+    owner : Text;
+    name : Text;
+    publisher : Text;
+    tokenId : Nat;
+    basis : Text;
+    date : Text;
+    reputation : {
+      category : Text;
+      value : Nat;
+    };
+  };
+
   // Sample Badge:
 
   // let badgeReceipt : BadgeReceipt = {
@@ -144,7 +159,6 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
   };
 
   public query func isUserInWhitelist(userId : Principal) : async Bool {
-    logger.append([prefix # " isUserInWhitelist:  check is user whitelisted: " # Principal.toText(userId)]);
     switch (Trie.get(whitelist, _keyFromPrincipal(userId), Principal.equal)) {
       case (null) {
         logger.append([prefix # " isUserInWhitelist: Err - user is not whitelisted: " # Principal.toText(userId)]);
@@ -157,22 +171,37 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     };
   };
 
+  public shared ({ caller }) func getWhitelistAsTextArray() : async [Text] {
+    if (await isUserInWhitelist(caller)) return Trie.toArray<Principal, (), Text>(
+      whitelist,
+      func(k, v) = Principal.toText(k),
+    );
+    return ["Access Denied"];
+  };
+
   // Logger
   stable var state : Logger.State<Text> = Logger.new<Text>(0, null);
   let logger = Logger.Logger<Text>(state);
   let prefix = Utils.timestampToDate();
 
-  public func viewLogs(end : Nat) : async [Text] {
-    let view = logger.view(0, end);
-    let result = Buffer.Buffer<Text>(1);
-    for (message in view.messages.vals()) {
-      result.add(message);
+  public shared ({ caller }) func viewLogs(end : Nat) : async [Text] {
+    if (await isUserInWhitelist(caller)) {
+      let view = logger.view(0, end);
+      let result = Buffer.Buffer<Text>(1);
+      for (message in view.messages.vals()) {
+        result.add(message);
+      };
+      return Buffer.toArray(result);
     };
-    Buffer.toArray(result);
+    return ["Access Denied"];
   };
-  public func clearAllLogs() : async Bool {
-    logger.clear();
-    true;
+
+  public shared ({ caller }) func clearAllLogs() : async Bool {
+    if (await isUserInWhitelist(caller)) {
+      logger.clear();
+      return true;
+    };
+    false;
   };
 
   public shared query func getCanisterId() : async Text {
@@ -181,9 +210,125 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     doctoken_canister_id;
   };
 
+  let default_filter_topic_name = "AwardReputation";
+  let default_topic_value = Text.encodeUtf8("1"); // Blob (vec {49})
+
+  private stable var certificateTrie : Trie<Principal, [Certficate]> = Trie.empty();
+
+  public shared ({ caller }) func createCertificate({
+    document_type : Text;
+    user_principal : Text;
+    category : Text;
+    course : Text;
+  }) : async Result.Result<Types.Event, Types.EventError> {
+    if (await isUserInWhitelist(caller)) {
+      let eventType : Types.EventName = #InstantReputationUpdateEvent;
+      let topic_name = default_filter_topic_name;
+      let topic_value : Blob = default_topic_value;
+
+      if (Text.equal(user_principal, "2vxsx-fae")) {
+        logger.append([prefix # " createCertificate: Forbidding user " # user_principal]);
+        return #err(#InvalidRecipient);
+      };
+      logger.append([prefix # " createCertificate: calling createEvent method with " # user_principal # ", category: " # category # ", course: " # course # ", caller:" # Principal.toText(caller)]);
+
+      let resultEvent : Result.Result<Types.Event, Types.EventError> = await createEvent(
+        eventType,
+        document_type,
+        Principal.fromText(user_principal),
+        owner_principal,
+        default_reputation_value,
+        course,
+        category,
+        topic_name,
+        topic_value,
+      );
+      switch (resultEvent) {
+        case (#ok event) {
+          logger.append([prefix # " createCertificate: Ok"]);
+          let cert : [Certficate] = [{
+            owner = Principal.toText(event.reputation_change.user);
+            name = user_principal;
+            publisher = Principal.toText(Option.get<Principal>(event.reputation_change.reviewer, Principal.fromText("aaaaa-aa")));
+            tokenId = event.reputation_change.source.1;
+            basis = course;
+            date = Nat.toText(event.reputation_change.timestamp);
+            reputation = {
+              category = category;
+              value = Option.get<Nat>(event.reputation_change.value, 0);
+            };
+          }];
+          certificateTrie := Trie.put(certificateTrie, _keyFromPrincipal(event.reputation_change.user), Principal.equal, cert).0;
+          return #ok(event);
+        };
+        case (#err error) {
+          logger.append([prefix # " createCertificate: Error: "]);
+          switch (error) {
+            case (#Unauthorized) {
+              logger.append([prefix # " createCertificate: Forbidding user " # user_principal]);
+              return #err(#Unauthorized);
+            };
+            case (#SupplyCapOverflow) {
+              logger.append([prefix # " createCertificate: Supply cap overflow for " # user_principal]);
+              return #err(#SupplyCapOverflow);
+            };
+            case (#InvalidRecipient) {
+              logger.append([prefix # " createCertificate: InvalidRecipient " # user_principal]);
+              return #err(#InvalidRecipient);
+            };
+            case (#AlreadyExistTokenId) {
+              logger.append([prefix # " createCertificate: AlreadyExistTokenId "]);
+              return #err(#AlreadyExistTokenId);
+            };
+            case (#GenericError(_)) {
+              logger.append([prefix # " createCertificate: GenericError "]);
+              return #err(#GenericError { error_code = 500; message = "Generic error" });
+            };
+            case (_) {
+              logger.append([prefix # " createCertificate: Error for " # user_principal]);
+              return #err(#GenericError { error_code = 500; message = "Generic error" });
+            };
+          };
+        };
+      };
+    };
+    #err(#GenericError { error_code = 500; message = "Access Denied" });
+  };
+
+  // public shared ({ caller }) func createEventBadge({
+  //   username : Text;
+  //   user : ?Principal;
+  //   eventname : Text;
+  //   category : Text;
+  //   reputation_value : Nat8;
+
+  // }) : async Result.Result<Types.Event, Types.EventError> {
+  //   if (await isUserInWhitelist(caller)) {
+  //     let eventType : Types.EventName = #InstantReputationUpdateEvent;
+  //     let topic_name = default_filter_topic_name;
+  //     let topic_value : Blob = default_topic_value;
+  //     let reward_reciever : Principal = switch (user) {
+  //       case (null) caller;
+  //       case (?u) u;
+  //     };
+  //     return await createEvent(
+  //       eventType,
+  //       reward_reciever,
+  //       caller,
+  //       10,
+  //       eventname # " : " # username,
+  //       category,
+  //       topic_name,
+  //       topic_value,
+  //     );
+  //   };
+  //   #err(#Unauthorized);
+  // };
+
   // Form event arguments (metadata, reputation, etc.) from document's fields and issue Event
-  public shared ({ caller }) func createEvent(
+  private func createEvent(
     eventType : Types.EventName,
+    document_type : Text,
     user : Principal,
     reviewer : Principal,
     value : Nat8,
@@ -194,65 +339,64 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
 
   ) : async Result.Result<Types.Event, Types.EventError> {
     ignore getCanisterId;
-    logger.append([prefix # " createEvent: start whitelist checking for  " # Principal.toText(caller)]);
-
-    if (await isUserInWhitelist(caller)) {
-      if ((await checkTag(category)) == false) {
-        return #err(#TagNotFound { tag = "Tag " # category # " Not Found" });
-      };
-      let token_metadata = [("Test_Metadata_Tag", #Text(category))];
-
-      let issueArgs : Types.IssueArgs = {
-        mint_args = {
-          to = { owner = user; subaccount = null };
-          token_id = next_token_id;
-          metadata = token_metadata;
-        };
-        topics = [{ name = topic_name; value = topic_value }];
-        reputation = {
-          user = user;
-          reviewer = reviewer;
-          value = value;
-          comment = comment;
-          category = category;
-        };
-      };
-
-      // Call issue function
-      logger.append([prefix # " createEvent: calling issue method "]);
-      let issueResult = await issue(user, issueArgs);
-      let tokenId_balance = switch (issueResult) {
-        case (#Err(err)) {
-          switch (err) {
-            case (#Unauthorized) return #err(#Unauthorized);
-            case (#SupplyCapOverflow) return #err(#SupplyCapOverflow);
-            case (#AlreadyExistTokenId) return #err(#AlreadyExistTokenId);
-            case (#GenericError { error_code; message }) {
-              return #err(#GenericError { error_code = error_code; message = message });
-            };
-            case (#InvalidRecipient) return #err(#InvalidRecipient);
-          };
-        };
-        case (#Ok(id)) { id };
-      };
-
-      return #ok({
-        eventType = eventType;
-        topics = issueArgs.topics;
-        details = null;
-        reputation_change = {
-          user = user;
-          reviewer = ?reviewer;
-          value = ?tokenId_balance.1;
-          category = issueArgs.reputation.category;
-          source = (doctoken_canister_id, tokenId_balance.0);
-          timestamp : Nat = Option.get<Nat>(Nat.fromText(Int.toText(Time.now())), 0);
-          comment = ?issueArgs.reputation.comment;
-          metadata : ?[(Text, Types.Metadata)] = Option.make([("Balance", #Text(category))]);
-        };
-        sender_hash = null;
-      });
+    // logger.append([prefix # " createEvent started"]);
+    if ((await checkTag(category)) == false) {
+      return #err(#TagNotFound { tag = "Tag " # category # " Not Found" });
     };
+    let token_metadata = [("Basis", #Text(comment)), ("DocumentType", #Text(document_type))];
+
+    let issueArgs : Types.IssueArgs = {
+      mint_args = {
+        to = { owner = user; subaccount = null };
+        token_id = next_token_id;
+        metadata = token_metadata;
+      };
+      topics = [{ name = topic_name; value = topic_value }];
+      reputation = {
+        user = user;
+        reviewer = reviewer;
+        value = value;
+        comment = comment;
+        category = category;
+      };
+    };
+
+    // Call issue function
+    logger.append([prefix # " createEvent: calling issue method"]);
+
+    let issueResult = await issue(user, issueArgs);
+    let tokenId_balance = switch (issueResult) {
+      case (#Err(err)) {
+        switch (err) {
+          case (#Unauthorized) return #err(#Unauthorized);
+          case (#SupplyCapOverflow) return #err(#SupplyCapOverflow);
+          case (#AlreadyExistTokenId) return #err(#AlreadyExistTokenId);
+          case (#GenericError { error_code; message }) {
+            return #err(#GenericError { error_code = error_code; message = message });
+          };
+          case (#InvalidRecipient) return #err(#InvalidRecipient);
+        };
+      };
+      case (#Ok(id, bal)) { (id, bal) };
+    };
+
+    return #ok({
+      eventType = eventType;
+      topics = issueArgs.topics;
+      details = null;
+      reputation_change = {
+        user = user;
+        reviewer = ?reviewer;
+        value = ?tokenId_balance.1;
+        category = issueArgs.reputation.category;
+        source = (doctoken_canister_id, tokenId_balance.0);
+        timestamp : Nat = Option.get<Nat>(Nat.fromText(Int.toText(Time.now())), 0);
+        comment = ?issueArgs.reputation.comment;
+        metadata : ?[(Text, Types.Metadata)] = Option.make(issueArgs.mint_args.metadata);
+      };
+      sender_hash = null;
+    });
+    // };
     return #err(#Unauthorized);
   };
 
@@ -271,9 +415,10 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
 
   func issue(caller : Principal, issueArgs : Types.IssueArgs) : async Types.IssueReceipt {
     // Mint a new doctoken from document
-    logger.append([prefix # " issue: calling mint method "]);
+    logger.append([prefix # " issue: call mint method"]);
+
     let result = await mint([issueArgs.reputation.category], issueArgs.mint_args);
-    let tokenId = switch (result) {
+    let tokenId_timestamp : (Types.TokenId, Nat64) = switch (result) {
       case (#Ok(reciept)) { reciept };
       case (#Err(err)) { return #Err(#Unauthorized) };
     };
@@ -283,14 +428,14 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
       topics = issueArgs.topics;
       details = null;
       reputation_change = {
-        user = caller;
-        reviewer = ?caller;
+        user = issueArgs.reputation.user;
+        reviewer = ?issueArgs.reputation.reviewer;
         value = ?Nat8.toNat(issueArgs.reputation.value);
         category = issueArgs.reputation.category;
-        source = (doctoken_canister_id, tokenId);
-        timestamp : Nat = Option.get<Nat>(Nat.fromText(Int.toText(Time.now())), 0);
+        source = (doctoken_canister_id, tokenId_timestamp.0);
+        timestamp : Nat = Nat64.toNat(tokenId_timestamp.1);
         comment = ?issueArgs.reputation.comment;
-        metadata : ?[(Text, Types.Metadata)] = Option.make([("Category", #Text(issueArgs.reputation.category))]);
+        metadata : ?[(Text, Types.Metadata)] = Option.make(issueArgs.mint_args.metadata);
       };
       sender_hash = null; // TODO add sender canister hash
 
@@ -307,7 +452,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     switch (emitInstantResult) {
       case (#Ok(bal)) {
         logger.append([prefix # " Method issue: event published Ok"]);
-        return #Ok((tokenId, bal[0].1));
+        return #Ok((tokenId_timestamp.0, bal[0].1));
       };
       case (#Err(err)) {
         logger.append([prefix # " Method issue: Erro: event publish failed "]);
@@ -317,7 +462,6 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
   };
 
   public shared query func getDocumentById(tokenId : Types.TokenId) : async ?Types.Document {
-    logger.append([prefix # " Method getDocumentById: Trying to find out document with tokenId=" # Nat.toText(tokenId)]);
     let item = Trie.get(tokens, _keyFromTokenId tokenId, Nat.equal);
     switch (item) {
       case null {
@@ -349,39 +493,39 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     };
   };
 
-  public shared query func icrc7_name() : async Text {
+  public query func icrc7_name() : async Text {
     return name;
   };
 
-  public shared query func icrc7_symbol() : async Text {
+  public query func icrc7_symbol() : async Text {
     return symbol;
   };
 
-  public shared query func icrc7_royalties() : async ?Nat16 {
+  public query func icrc7_royalties() : async ?Nat16 {
     return royalties;
   };
 
-  public shared query func icrc7_royalty_recipient() : async ?Types.Account {
+  public query func icrc7_royalty_recipient() : async ?Types.Account {
     return royaltyRecipient;
   };
 
-  public shared query func icrc7_description() : async ?Text {
+  public query func icrc7_description() : async ?Text {
     return description;
   };
 
-  public shared query func icrc7_image() : async ?Text {
+  public query func icrc7_image() : async ?Text {
     return image;
   };
 
-  public shared query func icrc7_total_supply() : async Nat {
+  public query func icrc7_total_supply() : async Nat {
     return totalSupply;
   };
 
-  public shared query func icrc7_supply_cap() : async ?Nat {
+  public query func icrc7_supply_cap() : async ?Nat {
     return supplyCap;
   };
 
-  public shared query func icrc7_metadata(tokenId : Types.TokenId) : async Types.MetadataResult {
+  public query func icrc7_metadata(tokenId : Types.TokenId) : async Types.MetadataResult {
     let item = Trie.get(tokens, _keyFromTokenId tokenId, Nat.equal);
     switch (item) {
       case null {
@@ -393,7 +537,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     };
   };
 
-  public shared query func icrc7_owner_of(tokenId : Types.TokenId) : async Types.OwnerResult {
+  public query func icrc7_owner_of(tokenId : Types.TokenId) : async Types.OwnerResult {
     let item = Trie.get(tokens, _keyFromTokenId tokenId, Nat.equal);
     switch (item) {
       case null {
@@ -405,7 +549,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     };
   };
 
-  public shared query func icrc7_balance_of(account : Types.Account) : async Types.BalanceResult {
+  public query func icrc7_balance_of(account : Types.Account) : async Types.BalanceResult {
     let acceptedAccount : Types.Account = _acceptAccount(account);
     let accountText : Text = Utils.accountToText(acceptedAccount);
     let item = Trie.get(balances, _keyFromText accountText, Text.equal);
@@ -419,7 +563,14 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     };
   };
 
-  public shared query func icrc7_tokens_of(account : Types.Account) : async Types.TokensOfResult {
+  public func userCertificates(user : Principal) : async [Certficate] {
+    switch (Trie.get<Principal, [Certficate]>(certificateTrie, _keyFromPrincipal user, Principal.equal)) {
+      case (?certificates) return certificates;
+      case null return [];
+    };
+  };
+
+  public query func tokens_of(account : Types.Account) : async Types.TokensOfResult {
     let acceptedAccount : Types.Account = _acceptAccount(account);
     let accountText : Text = Utils.accountToText(acceptedAccount);
     let item = Trie.get(owners, _keyFromText accountText, Text.equal);
@@ -596,24 +747,22 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
   };
 
   public shared ({ caller }) func burn(burnArg : Types.TransferArgs) : async Types.TransferReceipt {
-    if (not (await isUserInWhitelist(caller))) {
-      return #Err(#Unauthorized({ token_ids = [] }));
+    if (await isUserInWhitelist(caller)) {
+      let transferArgs : Types.TransferArgs = {
+        created_at_time = burnArg.created_at_time;
+        from = burnArg.from;
+        is_atomic = null;
+        memo = null;
+        spender_subaccount = null;
+        to = { owner = caller; subaccount = null };
+        token_ids = burnArg.token_ids;
+      };
+      return await icrc7_transfer(burnArg);
     };
-
-    let transferArgs : Types.TransferArgs = {
-      created_at_time = burnArg.created_at_time;
-      from = burnArg.from;
-      is_atomic = null;
-      memo = null;
-      spender_subaccount = null;
-      to = { owner = caller; subaccount = null };
-      token_ids = burnArg.token_ids;
-    };
-    await icrc7_transfer(burnArg);
+    return #Err(#Unauthorized({ token_ids = [] }));
   };
 
-  public shared ({ caller }) func mint(categories : [Text], mintArgs : Types.MintArgs) : async Types.MintReceipt {
-    // if (not (await isUserInWhitelist(caller))) { return #Err(#Unauthorized) };
+  func mint(categories : [Text], mintArgs : Types.MintArgs) : async Types.MintReceipt {
 
     let now = Nat64.fromIntWrap(Time.now());
     let acceptedTo : Types.Account = _acceptAccount(mintArgs.to);
@@ -640,6 +789,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     };
 
     //update the token metadata
+
     let tokenId : Types.TokenId = newToken.tokenId;
     tokens := Trie.put(tokens, _keyFromTokenId tokenId, Nat.equal, newToken).0;
 
@@ -650,11 +800,12 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     _incrementTotalSupply(1);
 
     let transaction : Types.Transaction = _addTransaction(#mint, now, ?[tokenId], ?acceptedTo, null, null, null, null, null);
+    logger.append([prefix # " mint: token created with tokenId: " # Nat.toText(tokenId) # " at " # Nat64.toText(transaction.timestamp)]);
 
     // update token counter
     next_token_id := next_token_id + 1;
 
-    return #Ok(tokenId);
+    return #Ok(tokenId, transaction.timestamp);
   };
 
   public shared query func get_transactions(getTransactionsArgs : Types.GetTransactionsArgs) : async Types.GetTransactionsResult {
@@ -752,7 +903,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     let actualBalance : Nat = Utils.nullishCoalescing<Nat>(balanceResult, 0);
 
     //update the balance
-    if (actualBalance > 1) {
+    if (actualBalance >= 1) {
       balances := Trie.put(balances, _keyFromText textAccount, Text.equal, actualBalance - 1).0;
     };
   };

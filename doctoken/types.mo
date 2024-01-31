@@ -160,7 +160,7 @@ module {
 
   public type TokensOfResult = Result<[TokenId], CallError>;
 
-  public type MintReceipt = Result<TokenId, MintError>;
+  public type MintReceipt = Result<(TokenId, Nat64), MintError>;
 
   // #Ok(TokenId, total user reputation)
   public type IssueReceipt = Result<(TokenId, Nat), MintError>;

@@ -209,6 +209,7 @@ module {
 	public func timestampToDate() : Text {
 		let start2024 = Time.now() - 1_704_067_200_000_000_000;
 		let seconds = start2024 / 1_000_000_000;
+
 		let minutes = Int.div(seconds, 60);
 		let hours = Int.div(minutes, 60);
 		let days = Int.div(hours, 24);
@@ -219,6 +220,7 @@ module {
 
 		let years = Int.div(days, 365);
 		let year = years + 2024;
+
 		var remainingDays = days - (years * 365);
 
 		let monthDays = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];

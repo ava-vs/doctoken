@@ -1,4 +1,4 @@
-dfx canister create --all && dfx build && dfx deploy --argument "(
+dfx deploy --argument "(
   record {
     owner = principal\"$(dfx identity get-principal)\";
     subaccount = opt blob \"00000000000000000000000000000000\";

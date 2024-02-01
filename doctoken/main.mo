@@ -115,7 +115,6 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
 
   // let badgeReceipt : BadgeReceipt = {
   //   owner = "Ivone Drake";
-  //   userId = 2300900923;
   //   reputation = {
   //     total = 695;
   //     specialist = [
@@ -295,36 +294,6 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     #err(#GenericError { error_code = 500; message = "Access Denied" });
   };
 
-  // public shared ({ caller }) func createEventBadge({
-  //   username : Text;
-  //   user : ?Principal;
-  //   eventname : Text;
-  //   category : Text;
-  //   reputation_value : Nat8;
-
-  // }) : async Result.Result<Types.Event, Types.EventError> {
-  //   if (await isUserInWhitelist(caller)) {
-  //     let eventType : Types.EventName = #InstantReputationUpdateEvent;
-  //     let topic_name = default_filter_topic_name;
-  //     let topic_value : Blob = default_topic_value;
-  //     let reward_reciever : Principal = switch (user) {
-  //       case (null) caller;
-  //       case (?u) u;
-  //     };
-  //     return await createEvent(
-  //       eventType,
-  //       reward_reciever,
-  //       caller,
-  //       10,
-  //       eventname # " : " # username,
-  //       category,
-  //       topic_name,
-  //       topic_value,
-  //     );
-  //   };
-  //   #err(#Unauthorized);
-  // };
-
   // Form event arguments (metadata, reputation, etc.) from document's fields and issue Event
   private func createEvent(
     eventType : Types.EventName,
@@ -338,8 +307,9 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     topic_value : Blob
 
   ) : async Result.Result<Types.Event, Types.EventError> {
-    ignore getCanisterId;
-    // logger.append([prefix # " createEvent started"]);
+    doctoken_canister_id := Principal.toText(Principal.fromActor(Self));
+    // logger.append([prefix # " createEvent started with doctoken_id: " # (await getCanisterId())]);
+
     if ((await checkTag(category)) == false) {
       return #err(#TagNotFound { tag = "Tag " # category # " Not Found" });
     };

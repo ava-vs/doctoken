@@ -332,7 +332,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
     };
 
     // Call issue function
-    logger.append([prefix # " createEvent: calling issue method"]);
+    // logger.append([prefix # " createEvent: calling issue method"]);
 
     let issueResult = await issue(user, issueArgs);
     let tokenId_balance = switch (issueResult) {
@@ -385,7 +385,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
 
   func issue(caller : Principal, issueArgs : Types.IssueArgs) : async Types.IssueReceipt {
     // Mint a new doctoken from document
-    logger.append([prefix # " issue: call mint method"]);
+    // logger.append([prefix # " issue: call mint method"]);
 
     let result = await mint([issueArgs.reputation.category], issueArgs.mint_args);
     let tokenId_timestamp : (Types.TokenId, Nat64) = switch (result) {
@@ -416,7 +416,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
 
     // call aVa Event Hub with the event
 
-    logger.append([prefix # " issue: call hub's emitEvent method"]);
+    // logger.append([prefix # " issue: call hub's emitEvent method"]);
     Cycles.add(default_event_fee);
     let emitInstantResult = await hub_instant_canister.emitEvent(event);
     switch (emitInstantResult) {

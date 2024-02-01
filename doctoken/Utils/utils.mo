@@ -76,7 +76,7 @@ module {
 		let hash_bytes = digest.sum();
 
 		let crc = CRC32.crc32(hash_bytes);
-		let aid_bytes = Array.append<Nat8>(crc, hash_bytes);
+		let aid_bytes = appendArray<Nat8>(crc, hash_bytes);
 
 		return encode(aid_bytes);
 	};
@@ -85,6 +85,13 @@ module {
 		let buffer = Buffer.fromArray<X>(array);
 		buffer.add(elem);
 		return Buffer.toArray(buffer);
+	};
+
+	public func appendArray<X>(array1 : [X], array2 : [X]) : [X] {
+		let buffer1 = Buffer.fromArray<X>(array1);
+		let buffer2 = Buffer.fromArray<X>(array2);
+		buffer1.append(buffer2);
+		Buffer.toArray(buffer1);
 	};
 
 	public func nullishCoalescing<X>(elem : ?X, default : X) : X {
@@ -166,10 +173,11 @@ module {
 		Text.join(",", Iter.map<Nat8, Text>(blob.vals(), Nat8.toText));
 	};
 
-	// convert date prefix from Int to date
+	// convert date (Time.now()) from Int to date (dd.mm.yyyy hh:mm:ss)
 
-	public func timestampToDate() : Text {
-		let seconds = Time.now() / 1_000_000_000;
+	public func convertTimestampToDate(timestamp : Int) : Text {
+		let year2024 = timestamp - 1_704_067_200_000_000_000;
+		let seconds = year2024 / 1_000_000_000;
 		let minutes = Int.div(seconds, 60);
 		let hours = Int.div(minutes, 60);
 		let days = Int.div(hours, 24);
@@ -179,7 +187,40 @@ module {
 		let hoursInDay = hours % 24;
 
 		let years = Int.div(days, 365);
-		let year = years + 1970;
+		let year = years + 2024;
+
+		var remainingDays = days - (years * 365);
+
+		let monthDays = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+		var month = 1;
+		label l for (i in monthDays.vals()) {
+			if (remainingDays < i) break l;
+			remainingDays -= i;
+			month += 1;
+		};
+
+		let day = Int.toText(remainingDays + 1);
+
+		return Int.toText(year) # "-" # Int.toText(month) # "-" # day # " "
+		# Int.toText(hoursInDay) # ":" # Int.toText(minutesInHour)
+		# ":" # Int.toText(secondsInMinute);
+	};
+
+	public func timestampToDate() : Text {
+		let start2024 = Time.now() - 1_704_067_200_000_000_000;
+		let seconds = start2024 / 1_000_000_000;
+
+		let minutes = Int.div(seconds, 60);
+		let hours = Int.div(minutes, 60);
+		let days = Int.div(hours, 24);
+
+		let secondsInMinute = seconds % 60;
+		let minutesInHour = minutes % 60;
+		let hoursInDay = hours % 24;
+
+		let years = Int.div(days, 365);
+		let year = years + 2024;
+
 		var remainingDays = days - (years * 365);
 
 		let monthDays = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];

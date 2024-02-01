@@ -309,6 +309,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
   ) : async Result.Result<Types.Event, Types.EventError> {
     doctoken_canister_id := Principal.toText(Principal.fromActor(Self));
     // logger.append([prefix # " createEvent started with doctoken_id: " # (await getCanisterId())]);
+
     if ((await checkTag(category)) == false) {
       return #err(#TagNotFound { tag = "Tag " # category # " Not Found" });
     };
@@ -388,7 +389,7 @@ shared actor class Collection(collectionOwner : Types.Account, init : Types.Coll
 
     let result = await mint([issueArgs.reputation.category], issueArgs.mint_args);
     let tokenId_timestamp : (Types.TokenId, Nat64) = switch (result) {
-      case (#Ok(reciept)) { ( reciept ) };
+      case (#Ok(reciept)) { reciept };
       case (#Err(err)) { return #Err(#Unauthorized) };
     };
     // create #InstantReputationUpdateEvent event

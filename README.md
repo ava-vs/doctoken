@@ -5,7 +5,7 @@
 aVa Doctoken allows the user to create an NFT document and issue [reputation](https://github.com/ava-vs/reputation/wiki) based on it. Default cost of NFT with reputation set to 750B cycles (~$1).
 
 ### Preliminary steps (you need to have [dfx](https://internetcomputer.org/docs/current/developer-docs/setup/install/) installed)
-1. **Clone the repository**: Go to [https://github.com/ava-vs/doctoken/tree/release-03-22012024](https://github.com/ava-vs/doctoken.git), fork and clone the repository.
+1. **Clone the repository**: Go to [aVa Doctoken Repo](https://github.com/ava-vs/doctoken.git), fork and clone the repository.
 
 2. **Customize the parameters: Edit the `/commands/deploy-ic.sh` file in your copy and adjust the Name, Symbol and Description fields to suit your needs.
 

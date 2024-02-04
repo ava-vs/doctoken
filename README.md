@@ -2,98 +2,55 @@
 
 ## Overview
 
-aVa Doctoken allows user to create an NFT document and issue [reputation](https://github.com/ava-vs/reputation/wiki) based on it. Default cost of NFT with reputation set to 750B (~$1) cycles.
+aVa Doctoken allows the user to create an NFT document and issue [reputation](https://github.com/ava-vs/reputation/wiki) based on it. Default cost of NFT with reputation set to 750B cycles (~$1).
 
-### Preliminary Steps (you need [dfx](https://internetcomputer.org/docs/current/developer-docs/setup/install/) installed)
-1. **Clone the repository**: Go to [https://github.com/ava-vs/doctoken/tree/release-03-22012024](https://github.com/ava-vs/doctoken/tree/release-03-22012024), fork and clone the repository.
+### Preliminary steps (you need to have [dfx](https://internetcomputer.org/docs/current/developer-docs/setup/install/) installed)
+1. **Clone the repository**: Go to [https://github.com/ava-vs/doctoken/tree/release-03-22012024](https://github.com/ava-vs/doctoken.git), fork and clone the repository.
 
-2. **Adjust the parameters: Edit the `/commands/deploy-ic.sh` file in your fork and adjust the Name, Symbol and Description fields to suit your needs.
+2. **Customize the parameters: Edit the `/commands/deploy-ic.sh` file in your copy and adjust the Name, Symbol and Description fields to suit your needs.
 
-3. **Launch the Doctoken canister**: (Note: You must install [dfx](https://internetcomputer.org/docs/current/developer-docs/setup/install/) and fund your wallet for at least 3.6T cycles to create a canister).  Run the
+3. **Start the Doctoken canister: (Note: You must install [dfx](https://internetcomputer.org/docs/current/developer-docs/setup/install/) and fund your wallet for at least 3.6T cycles to create a canister).  Run the
  ```
 cd commands
 sh ./deploy-ic.sh
 ```
- to launch the doctoken canister.
+ to start the doctoken canister.
 
-### Issuing Certificates
+ The first certificate will be issued to your principal, and your deployer's Motoko reputation will be set to 120 (rank "Specialist"). 
+ 
+ Congratulations! You have deployed your first doctoken canister!
+
+Save your Doctoken Canister ID. You can view it with the command 
+```bash
+dfx canister id doctoken --ic
+```
+
+#### Issuing Certificates
 1. **Get Internet Identity**: Make sure the user you want to issue a certificate to has an Internet Identity identifier. This will be used as the `user_principal'.
 
-2. **Call the CreateCertificate method: To create a certificate, call the `createCertificate` method of the doctoken canister with arguments corresponding to the document type, user principal, category, and course. Example arguments:
+2. Call the CreateCertificate method: To create a certificate, call the `createCertificate` method of the doctoken canister (using the `call.sh' script, `dfx canister call' command, frontend call, or inter-canister call) with arguments corresponding to the document type, user principal, category, and course. Example arguments:
     ```json
     {
-      "document_type": "Certificate", // now only Certificate allows
-      "user_principal": "user-principal-from-internet-identity", // set Internet Identity principal of the your graduate here
-      "category": "Motoko", // Category, e.g. Motoko
+      "document_type": " Certificate", // now only Certificate is allowed
+      "user_principal": "user-principal-from-internet-identity", // set the Internet Identity text id of your graduate here
+      "category": "Motoko", // category, e.g. Motoko
       "course": "Basic Motoko", // Course title, e.g. Basic Motoko
     }
     ```
-This invocation will result in the issuance of a certificate in ICRC-7 NFT format, giving the specified user 10 reputation points in the specified category.
+    This command will issue a certificate in ICRC-7 NFT format giving the specified user 10 reputation points in the specified category.
 
-## ICRC-7 Specification
+#### Example for the 'dfx canister call' command:
 
-For standard methods and structures documentation, read the [specifications](https://github.com/dfinity/ICRC/blob/main/ICRCs/ICRC-7/ICRC-7.md).
+dfx canister call --ic <your-doctoken-canister-id, e.g. 4yplh-laaaa-aaaal-qdfda-cai > createCertificate '(record {
+document_type="Certificate"; 
+user_principal=<graduate's text id from Internet Identity, ex. "d3gb7-5ya4i-g3bs7-hfmxr-kgpc3-4nlmy-mttop-anqt5-eal7h-lzdvo-...">;
+ category="Motoko";
+ course="Basic Motoko"})'
 
-### Deployment
-For deployment to mainnet of Internet Computer use: 
-*If necessary, enter your information in the Name, Symbol, and Description fields in /commands/deploy-ic.sh.*
+4. **Refill your Doctoken canister: Certificate retrieval costs 750B cycles (~$1). Do not forget to refill your Doctoken canister with dfx or special services.
 
-<code>
-	cd commands
-	sh ./deploy-ic.sh
-</code>
-
-
-### Available methods
-All ICRC-7 methods available except icrc7_transfer
-
-Additional method: 
-
-#### addUser (to whitelist)
-Add the member to the whitelist for update calls.
-The deployer is whitelisted by default.
-
-```candid "Methods" +=
-addUser : (principal) -> (bool);
+#### Example dfx recharge command:
+```bash
+dfx ledger --ic top-up <your_doctoken_canister_id> -amount 2
 ```
-
-#### removeUser (from whitelist)
-Remove the principal from the whitelist.
-The last user will not be deleted.
-
-```candid "Methods" +=
-removeUser : (principal) -> (bool);
-```
-
-#### burn
-```candid "Methods" +=
-burn : (TransferArgs) -> (variant { Ok: nat; Err: TransferError; });
-```
-
-```candid "Type definitions" +=
-type Subaccount = blob;
-
-type Account = record {
-		owner: principal; 
-		subaccount: opt blob;
-  };
-  
-type TransferArgs = record {
-    spender_subaccount: opt Subaccount; // the subaccount of the caller (used to identify the spender)
-    from: opt Account;     /* if supplied and is not caller then is permit transfer, if not supplied defaults to subaccount 0 of the caller principal */
-    to: Account;
-    token_ids: vec {nat};   
-    memo: ?Blob;
-    created_at_time: opt nat64;
-    is_atomic: opt bool;
-  };
-
-type TransferError = variant {
-    Unauthorized: record { token_ids: vec (nat) };
-    TooOld;
-    CreatedInFuture: record { ledger_time: nat };
-    Duplicate: record { duplicate_of: nat };
-    TemporarilyUnavailable: {};
-    GenericError: record { error_code: nat; message: text };
-  };
-```
+where "2" is the amount of ICP tokens.
